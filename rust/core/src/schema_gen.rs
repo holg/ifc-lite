@@ -225,6 +225,8 @@ impl AttributeValue {
 pub struct DecodedEntity {
     pub id: u32,
     pub ifc_type: IfcType,
+    /// Original type name string (useful for Unknown types)
+    pub type_name: String,
     pub attributes: Vec<AttributeValue>,
 }
 
@@ -233,7 +235,18 @@ impl DecodedEntity {
     pub fn new(id: u32, ifc_type: IfcType, attributes: Vec<AttributeValue>) -> Self {
         Self {
             id,
+            type_name: ifc_type.as_str().to_string(),
             ifc_type,
+            attributes,
+        }
+    }
+
+    /// Create new decoded entity with explicit type name
+    pub fn with_type_name(id: u32, ifc_type: IfcType, type_name: String, attributes: Vec<AttributeValue>) -> Self {
+        Self {
+            id,
+            ifc_type,
+            type_name,
             attributes,
         }
     }
@@ -261,6 +274,15 @@ impl DecodedEntity {
     /// Get list attribute
     pub fn get_list(&self, index: usize) -> Option<&[AttributeValue]> {
         self.get(index).and_then(|v| v.as_list())
+    }
+
+    /// Get list of entity references from an attribute
+    pub fn get_ref_list(&self, index: usize) -> Option<Vec<u32>> {
+        self.get_list(index).map(|list| {
+            list.iter()
+                .filter_map(|v| v.as_entity_ref())
+                .collect()
+        })
     }
 }
 

@@ -12,3 +12,6 @@ target/
 Cargo.lock
 **/*.rs.bk
 *.pdb
+
+# Build config (contains deploy credentials)
+scripts/build-config.toml

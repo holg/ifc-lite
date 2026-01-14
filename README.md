@@ -2,281 +2,172 @@
   <img src="docs/assets/logo.svg" alt="IFC-Lite Logo" width="120" height="120">
 </p>
 
-<h1 align="center">IFC-Lite</h1>
+<h1 align="center">IFC-Lite (Bevy Fork)</h1>
 
 <p align="center">
-  <strong>High-performance browser-native IFC platform</strong>
+  <strong>Pure Rust/WebAssembly IFC viewer with Bevy 3D rendering</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/louistrue/ifc-lite/actions"><img src="https://img.shields.io/github/actions/workflow/status/louistrue/ifc-lite/ci.yml?branch=main&style=flat-square&logo=github" alt="Build Status"></a>
-  <a href="https://github.com/louistrue/ifc-lite/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MPL--2.0-blue?style=flat-square" alt="License"></a>
-  <a href="https://www.npmjs.com/package/@ifc-lite/parser"><img src="https://img.shields.io/npm/v/@ifc-lite/parser?style=flat-square&logo=npm&label=parser" alt="npm parser"></a>
+  <a href="https://github.com/dbsystel/ifc-lite/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MPL--2.0-blue?style=flat-square" alt="License"></a>
   <a href="https://crates.io/crates/ifc-lite-core"><img src="https://img.shields.io/crates/v/ifc-lite-core?style=flat-square&logo=rust&label=core" alt="crates.io"></a>
 </p>
 
-<p align="center">
-  <a href="#features">Features</a> &bull;
-  <a href="#quick-start">Quick Start</a> &bull;
-  <a href="#documentation">Documentation</a> &bull;
-  <a href="#architecture">Architecture</a> &bull;
-  <a href="#performance">Performance</a> &bull;
-  <a href="#contributing">Contributing</a>
-</p>
+---
+
+> **Fork Notice:** This is a fork of [louistrue/ifc-lite](https://github.com/louistrue/ifc-lite), reimplemented as a **pure Rust/WASM** application. The original project uses Node.js/TypeScript with pnpm. This fork eliminates all JavaScript tooling in favor of:
+> - **Yew** for the web UI
+> - **Bevy** for 3D rendering (WebGPU/WebGL2)
+> - **trunk** for WASM builds
+>
+> No Node.js, no pnpm, no npm packages required.
 
 ---
 
 ## Overview
 
-**IFC-Lite** is a next-generation IFC (Industry Foundation Classes) platform built with **Rust + WebAssembly** for parsing, geometry processing, and **WebGPU** for 3D visualization. It's designed to be a **95x smaller** and significantly faster alternative to existing web-based IFC solutions.
-
-<p align="center">
-  <strong>~86 KB total</strong> &nbsp;•&nbsp; <strong>1.9x faster</strong> &nbsp;•&nbsp; <strong>100% IFC4 schema</strong>
-</p>
+**IFC-Lite** is a high-performance IFC (Industry Foundation Classes) viewer built entirely in **Rust**, compiled to **WebAssembly** for browser deployment. It uses **Bevy** for GPU-accelerated 3D rendering and **Yew** for the reactive web UI.
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| **STEP/IFC Parsing** | Zero-copy tokenization at ~1,259 MB/s with full IFC4 schema support (776 entities) |
-| **Streaming Pipeline** | Progressive geometry processing - first triangles render in 300-500ms |
-| **WebGPU Rendering** | Modern GPU-accelerated 3D visualization with depth testing and frustum culling |
-| **Columnar Storage** | Memory-efficient TypedArray storage with 30% string deduplication |
-| **Zero-Copy GPU** | Direct WASM memory binding to GPU buffers |
+| **Pure Rust Stack** | No JavaScript build tools - just Rust, cargo, and trunk |
+| **Bevy 3D Renderer** | WebGPU/WebGL2 rendering with orbit/pan/zoom camera controls |
+| **Yew UI** | Reactive web interface with hierarchy panel, properties panel, and toolbar |
+| **STEP/IFC Parsing** | Zero-copy tokenization with full IFC4 schema support |
+| **URL Loading** | Load IFC files via `?file=model.ifc` URL parameter |
+| **Streaming Pipeline** | Progressive geometry processing for large models |
 
 ## Quick Start
 
-### Option 1: Create a New Project (Recommended)
+### Prerequisites
 
-Get started instantly without cloning the repo:
+- **Rust** toolchain (rustup)
+- **trunk** (`cargo install trunk`)
+- **wasm-bindgen-cli** (`cargo install wasm-bindgen-cli`)
+- Optional: **wasm-opt** for optimization, **brotli** for compression
 
-```bash
-npx create-ifc-lite my-ifc-app
-cd my-ifc-app
-npm install && npm run parse
-```
-
-Or create a React viewer:
+### Build & Run
 
 ```bash
-npx create-ifc-lite my-viewer --template react
-cd my-viewer
-npm install && npm run dev
-```
-
-### Option 2: Install Packages Directly
-
-Add IFC-Lite to your existing project:
-
-```bash
-npm install @ifc-lite/parser
-```
-
-```typescript
-import { IfcParser } from '@ifc-lite/parser';
-
-const parser = new IfcParser();
-const result = parser.parse(ifcBuffer);
-
-console.log(`Found ${result.entities.length} entities`);
-```
-
-For full 3D rendering, add geometry and renderer packages:
-
-```bash
-npm install @ifc-lite/parser @ifc-lite/geometry @ifc-lite/renderer
-```
-
-### Option 3: Rust/Cargo
-
-For Rust projects:
-
-```bash
-cargo add ifc-lite-core
-```
-
-```rust
-use ifc_lite_core::parse_ifc;
-
-let result = parse_ifc(&ifc_bytes)?;
-println!("Parsed {} entities", result.entities.len());
-```
-
-### Option 4: Clone the Repo (Contributors)
-
-For contributing or running the full demo app:
-
-```bash
-git clone https://github.com/louistrue/ifc-lite.git
+# Clone the repository
+git clone https://github.com/dbsystel/ifc-lite.git
 cd ifc-lite
-pnpm install && pnpm dev
+
+# Build and serve locally
+./scripts/build-wasm-split.sh serve
+
+# Or build for production deployment
+./scripts/build-wasm-split.sh deploy
 ```
 
-Open http://localhost:5173 and load an IFC file.
+### URL Parameters
 
-> **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
-
-### Basic Usage
-
-```typescript
-import { IfcParser } from '@ifc-lite/parser';
-import { Renderer } from '@ifc-lite/renderer';
-
-// Parse IFC file
-const parser = new IfcParser();
-const result = parser.parse(ifcArrayBuffer);
-
-// Access entities
-const walls = result.entities.filter(e => e.type === 'IFCWALL');
-console.log(`Found ${walls.length} walls`);
-
-// Render geometry (requires @ifc-lite/renderer)
-const renderer = new Renderer(canvas);
-await renderer.loadGeometry(result.geometry);
-renderer.render();
+Load IFC files directly via URL:
 ```
-
-## Documentation
-
-| Resource | Description |
-|----------|-------------|
-| [**User Guide**](https://louistrue.github.io/ifc-lite/) | Complete guide with tutorials and examples |
-| [**API Reference**](https://louistrue.github.io/ifc-lite/api/) | Rustdoc API documentation |
-| [**Architecture**](docs/architecture.md) | System design and data flow |
-| [**Release Process**](RELEASE.md) | Automated versioning and publishing workflow |
-
-## Architecture
-
-IFC files flow through three layers:
-
-**Parser** (Rust/WASM) — Zero-copy STEP tokenizer, entity scanner, and geometry processor using nom, earcutr, and nalgebra.
-
-**Data** (TypeScript) — Columnar TypedArrays for properties, CSR graph for relationships, GPU-ready geometry buffers.
-
-**Output** — WebGPU renderer, Parquet analytics, glTF/JSON-LD/CSV export.
+https://your-server.com/?file=model.ifc        # Loads /ifc/model.ifc
+https://your-server.com/?file=path/to/file.ifc # Loads /ifc/path/to/file.ifc
+```
 
 ## Project Structure
 
 ```
 ifc-lite/
-├── rust/                      # Rust/WASM backend
-│   ├── core/                  # IFC/STEP parsing (~2,000 LOC)
-│   ├── geometry/              # Geometry processing (~2,500 LOC)
-│   └── wasm-bindings/         # JavaScript API (~800 LOC)
+├── rust/                      # Core Rust libraries
+│   ├── core/                  # IFC/STEP parsing
+│   └── geometry/              # Geometry processing
 │
-├── packages/                  # TypeScript packages
-│   ├── parser/                # High-level IFC parser
-│   ├── geometry/              # Geometry bridge (WASM)
-│   ├── renderer/              # WebGPU rendering
-│   ├── cache/                 # Binary cache format
-│   ├── query/                 # Query system
-│   ├── data/                  # Columnar data structures
-│   ├── spatial/               # Spatial indexing
-│   ├── export/                # Export formats
-│   └── codegen/               # Schema generator
+├── crates/                    # WASM application crates
+│   ├── ifc-lite-viewer/       # Main Yew application entry point
+│   ├── ifc-lite-yew/          # Yew UI components & state
+│   └── ifc-lite-bevy/         # Bevy 3D renderer
 │
-├── apps/
-│   └── viewer/                # React web application
+├── scripts/
+│   ├── build-wasm-split.sh    # Build script for split WASM bundles
+│   └── build-config.toml      # Build configuration
 │
-├── docs/                      # Documentation (MkDocs)
-└── plan/                      # Technical specifications
+└── tests/ifc/                 # Test IFC files
 ```
 
-## Performance
+## Architecture
 
-### Bundle Size Comparison
-
-| Library | Size | Gzipped |
-|---------|------|---------|
-| **IFC-Lite** | **~86 KB** | **~28 KB** |
-| Traditional WASM | 8+ MB | N/A |
-| **Reduction** | **93%** | - |
-
-### Parse Performance
-
-| Model Size | IFC-Lite | Notes |
-|------------|----------|-------|
-| 10 MB | ~800ms | Small models |
-| 50 MB | ~2.7s | Typical models |
-| 100+ MB | ~5s+ | Complex geometry |
-
-### Geometry Processing
-
-- **1.9x faster** mesh extraction than traditional solutions
-- Streaming pipeline with batched processing (100 meshes/batch)
-- First triangles visible in **300-500ms**
-
-## Browser Requirements
-
-| Browser | Minimum Version | WebGPU |
-|---------|----------------|--------|
-| Chrome | 113+ | ✅ |
-| Edge | 113+ | ✅ |
-| Firefox | 127+ | ✅ |
-| Safari | 18+ | ✅ |
-
-## Development (Contributors)
-
-For contributing to IFC-Lite itself:
-
-```bash
-git clone https://github.com/louistrue/ifc-lite.git
-cd ifc-lite
-pnpm install
-
-pnpm dev          # Start viewer in dev mode
-pnpm build        # Build all packages
-pnpm test         # Run tests
-
-# Add a changeset when making changes
-pnpm changeset    # Describe your changes (required for releases)
-
-# Rust/WASM development (optional - WASM is pre-built)
-cd rust && cargo build --release --target wasm32-unknown-unknown
-bash build-wasm.sh  # Rebuild WASM after Rust changes
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Browser                               │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐    localStorage    ┌─────────────────┐ │
+│  │   Yew UI        │◄──────────────────►│  Bevy Renderer  │ │
+│  │  (ifc-lite-yew) │     (bridge)       │ (ifc-lite-bevy) │ │
+│  └────────┬────────┘                    └────────┬────────┘ │
+│           │                                      │          │
+│           ▼                                      ▼          │
+│  ┌─────────────────┐                    ┌─────────────────┐ │
+│  │  IFC Parser     │                    │  WebGPU/WebGL2  │ │
+│  │ (ifc-lite-core) │                    │   Rendering     │ │
+│  └─────────────────┘                    └─────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Packages
-
-| Package | Description | Status |
-|---------|-------------|--------|
-| `create-ifc-lite` | Project scaffolding CLI | ✅ Stable |
-| `@ifc-lite/parser` | STEP tokenizer & entity extraction | ✅ Stable |
-| `@ifc-lite/geometry` | Geometry processing bridge | ✅ Stable |
-| `@ifc-lite/renderer` | WebGPU rendering pipeline | ✅ Stable |
-| `@ifc-lite/cache` | Binary cache for instant loading | ✅ Stable |
-| `@ifc-lite/query` | Fluent & SQL query system | 🚧 Beta |
-| `@ifc-lite/data` | Columnar data structures | ✅ Stable |
-| `@ifc-lite/spatial` | Spatial indexing & culling | 🚧 Beta |
-| `@ifc-lite/export` | Export (glTF, Parquet, etc.) | 🚧 Beta |
+- **Yew UI** handles file loading, hierarchy tree, property display, and user interactions
+- **Bevy Renderer** provides 3D visualization with camera controls and entity picking
+- **localStorage bridge** synchronizes geometry, selection, and visibility between the two WASM modules
 
 ## Rust Crates
 
-| Crate | Description | Status |
-|-------|-------------|--------|
-| `ifc-lite-core` | STEP/IFC parsing | ✅ Stable |
-| `ifc-lite-geometry` | Mesh triangulation | ✅ Stable |
-| `ifc-lite-wasm` | WASM bindings | ✅ Stable |
+| Crate | Description |
+|-------|-------------|
+| `ifc-lite-core` | STEP/IFC parsing with full IFC4 schema |
+| `ifc-lite-geometry` | Mesh triangulation and extrusion |
+| `ifc-lite-yew` | Yew UI components and state management |
+| `ifc-lite-bevy` | Bevy 3D renderer plugin |
+| `ifc-lite-viewer` | Main WASM entry point |
 
-## Contributing
+## Build Configuration
 
-We welcome contributions! Please see our [Release Process Guide](RELEASE.md) for details on versioning and publishing.
+The build is configured via `scripts/build-config.toml`:
+
+```toml
+[project]
+name = "ifc-lite"
+
+[paths]
+wasm_crate = "crates/ifc-lite-viewer"
+bevy_crate = "crates/ifc-lite-bevy"
+watch_paths = ["rust/core", "rust/geometry", "crates/ifc-lite-yew"]
+
+[bundles]
+leptos = true   # Yew UI (loads immediately)
+bevy = true     # Bevy 3D (loads on demand)
+```
+
+## Development
 
 ```bash
-# Fork and clone
-git clone https://github.com/YOUR_USERNAME/ifc-lite.git
+# Check all crates compile
+cargo check --workspace
 
-# Create a branch
-git checkout -b feature/my-feature
+# Run tests
+cargo test --workspace
 
-# Make changes and test
-pnpm test
+# Build Yew viewer only (faster iteration)
+cd crates/ifc-lite-viewer && trunk serve
 
-# Add a changeset to describe your changes
-pnpm changeset
+# Full production build
+./scripts/build-wasm-split.sh
 
-# Submit a pull request (include the changeset file)
+# Deploy to server
+./scripts/build-wasm-split.sh deploy
 ```
+
+## Browser Requirements
+
+| Browser | Minimum Version | WebGPU | WebGL2 |
+|---------|----------------|--------|--------|
+| Chrome | 113+ | Yes | Yes |
+| Edge | 113+ | Yes | Yes |
+| Firefox | 127+ | Yes | Yes |
+| Safari | 18+ | Yes | Yes |
 
 ## License
 
@@ -284,13 +175,15 @@ This project is licensed under the [Mozilla Public License 2.0](LICENSE).
 
 ## Acknowledgments
 
-- Built with [nom](https://github.com/rust-bakery/nom) for parsing
+- Original project: [louistrue/ifc-lite](https://github.com/louistrue/ifc-lite)
+- [Bevy](https://bevyengine.org/) game engine for 3D rendering
+- [Yew](https://yew.rs/) framework for reactive web UI
+- [nom](https://github.com/rust-bakery/nom) for parsing
 - [earcutr](https://github.com/nickel-org/earcutr) for polygon triangulation
 - [nalgebra](https://nalgebra.org/) for linear algebra
-- [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/) for Rust/JS interop
 
 ---
 
 <p align="center">
-  Made with ❤️ for the AEC industry
+  Made with Rust for the AEC industry
 </p>

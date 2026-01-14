@@ -7,17 +7,16 @@
 //! Lazily decode IFC entities from byte offsets without loading entire file into memory.
 
 use crate::error::{Error, Result};
-use crate::parser::parse_entity;
+use crate::parser::{parse_entity, Token};
+use crate::schema::IfcType;
 use crate::schema_gen::{AttributeValue, DecodedEntity};
 use rustc_hash::FxHashMap;
-use std::sync::Arc;
 
 /// Pre-built entity index type
 pub type EntityIndex = FxHashMap<u32, (usize, usize)>;
 
 /// Build entity index from content - O(n) scan using SIMD-accelerated search
 /// Returns index mapping entity IDs to byte offsets
-#[inline]
 pub fn build_entity_index(content: &str) -> EntityIndex {
     let bytes = content.as_bytes();
     let len = bytes.len();
@@ -44,16 +43,10 @@ pub fn build_entity_index(content: &str) -> EntityIndex {
         while pos < len && bytes[pos].is_ascii_digit() {
             pos += 1;
         }
-        let id_end = pos;
 
-        // Skip whitespace before '=' (handles both `#45=` and `#45 = ` formats)
-        while pos < len && bytes[pos].is_ascii_whitespace() {
-            pos += 1;
-        }
-
-        if id_end > id_start && pos < len && bytes[pos] == b'=' {
+        if pos > id_start && pos < len && bytes[pos] == b'=' {
             // Fast integer parsing without allocation
-            let id = parse_u32_inline(bytes, id_start, id_end);
+            let id = parse_u32_inline(bytes, id_start, pos);
 
             // Find end of entity (;) using SIMD
             let entity_content = &bytes[pos..];
@@ -73,19 +66,18 @@ pub fn build_entity_index(content: &str) -> EntityIndex {
 #[inline]
 fn parse_u32_inline(bytes: &[u8], start: usize, end: usize) -> u32 {
     let mut result: u32 = 0;
-    for &byte in &bytes[start..end] {
-        let digit = byte.wrapping_sub(b'0');
+    for i in start..end {
+        let digit = bytes[i].wrapping_sub(b'0');
         result = result.wrapping_mul(10).wrapping_add(digit as u32);
     }
     result
 }
 
-/// Entity decoder for lazy parsing - uses Arc for efficient cache sharing
+/// Entity decoder for lazy parsing
 pub struct EntityDecoder<'a> {
     content: &'a str,
-    /// Cache of decoded entities (entity_id -> `Arc<DecodedEntity>`)
-    /// Using Arc avoids expensive clones on cache hits
-    cache: FxHashMap<u32, Arc<DecodedEntity>>,
+    /// Cache of decoded entities (entity_id -> DecodedEntity)
+    cache: FxHashMap<u32, DecodedEntity>,
     /// Index of entity offsets (entity_id -> (start, end))
     /// Can be pre-built or built lazily
     entity_index: Option<EntityIndex>,
@@ -124,21 +116,14 @@ impl<'a> EntityDecoder<'a> {
     #[inline]
     pub fn decode_at(&mut self, start: usize, end: usize) -> Result<DecodedEntity> {
         let line = &self.content[start..end];
-        let (id, ifc_type, tokens) = parse_entity(line).map_err(|e| {
+        let (id, ifc_type, type_name, tokens) = parse_entity(line).map_err(|e| {
             // Add debug info about what failed to parse
-            Error::parse(
-                0,
-                format!(
-                    "Failed to parse entity: {:?}, input: {:?}",
-                    e,
-                    &line[..line.len().min(100)]
-                ),
-            )
+            Error::parse(0, format!("Failed to parse entity: {:?}, input: {:?}", e, &line[..line.len().min(100)]))
         })?;
 
-        // Check cache first - return clone of inner DecodedEntity
-        if let Some(entity_arc) = self.cache.get(&id) {
-            return Ok(entity_arc.as_ref().clone());
+        // Check cache first
+        if let Some(entity) = self.cache.get(&id) {
+            return Ok(entity.clone());
         }
 
         // Convert tokens to AttributeValues
@@ -147,25 +132,24 @@ impl<'a> EntityDecoder<'a> {
             .map(|token| AttributeValue::from_token(token))
             .collect();
 
-        let entity = DecodedEntity::new(id, ifc_type, attributes);
-        self.cache.insert(id, Arc::new(entity.clone()));
+        let entity = DecodedEntity::with_type_name(id, ifc_type, type_name, attributes);
+        self.cache.insert(id, entity.clone());
         Ok(entity)
     }
 
     /// Decode entity by ID - O(1) lookup using entity index
     #[inline]
     pub fn decode_by_id(&mut self, entity_id: u32) -> Result<DecodedEntity> {
-        // Check cache first - return clone of inner DecodedEntity
-        if let Some(entity_arc) = self.cache.get(&entity_id) {
-            return Ok(entity_arc.as_ref().clone());
+        // Check cache first
+        if let Some(entity) = self.cache.get(&entity_id) {
+            return Ok(entity.clone());
         }
 
         // Build index if not already built
         self.build_index();
 
         // O(1) lookup in index
-        let (start, end) = self
-            .entity_index
+        let (start, end) = self.entity_index
             .as_ref()
             .and_then(|idx| idx.get(&entity_id).copied())
             .ok_or_else(|| Error::parse(0, format!("Entity #{} not found", entity_id)))?;
@@ -184,7 +168,10 @@ impl<'a> EntityDecoder<'a> {
     }
 
     /// Resolve list of entity references
-    pub fn resolve_ref_list(&mut self, attr: &AttributeValue) -> Result<Vec<DecodedEntity>> {
+    pub fn resolve_ref_list(
+        &mut self,
+        attr: &AttributeValue,
+    ) -> Result<Vec<DecodedEntity>> {
         let list = attr
             .as_list()
             .ok_or_else(|| Error::parse(0, "Expected list".to_string()))?;
@@ -200,7 +187,7 @@ impl<'a> EntityDecoder<'a> {
 
     /// Get cached entity (without decoding)
     pub fn get_cached(&self, entity_id: u32) -> Option<DecodedEntity> {
-        self.cache.get(&entity_id).map(|arc| arc.as_ref().clone())
+        self.cache.get(&entity_id).cloned()
     }
 
     /// Clear cache to free memory
@@ -212,319 +199,11 @@ impl<'a> EntityDecoder<'a> {
     pub fn cache_size(&self) -> usize {
         self.cache.len()
     }
-
-    /// Get raw bytes for an entity (for direct/fast parsing)
-    /// Returns the full entity line including type and attributes
-    #[inline]
-    pub fn get_raw_bytes(&mut self, entity_id: u32) -> Option<&'a [u8]> {
-        self.build_index();
-        let (start, end) = self.entity_index.as_ref()?.get(&entity_id).copied()?;
-        Some(&self.content.as_bytes()[start..end])
-    }
-
-    /// Get raw content string for an entity
-    #[inline]
-    pub fn get_raw_content(&mut self, entity_id: u32) -> Option<&'a str> {
-        self.build_index();
-        let (start, end) = self.entity_index.as_ref()?.get(&entity_id).copied()?;
-        Some(&self.content[start..end])
-    }
-
-    /// Fast extraction of entity reference IDs from a list attribute in raw bytes
-    /// Useful for getting face list from ClosedShell, bounds from Face, etc.
-    /// Returns list of entity IDs
-    #[inline]
-    pub fn get_entity_ref_list_fast(&mut self, entity_id: u32) -> Option<Vec<u32>> {
-        let bytes = self.get_raw_bytes(entity_id)?;
-
-        // Pattern: IFCTYPE((#id1,#id2,...)); or IFCTYPE((#id1,#id2,...),other);
-        let mut i = 0;
-        let len = bytes.len();
-
-        // Skip to first '(' after '='
-        while i < len && bytes[i] != b'(' {
-            i += 1;
-        }
-        if i >= len {
-            return None;
-        }
-        i += 1; // Skip first '('
-
-        // Skip to second '(' for the list
-        while i < len && bytes[i] != b'(' {
-            i += 1;
-        }
-        if i >= len {
-            return None;
-        }
-        i += 1; // Skip second '('
-
-        // Parse entity IDs
-        let mut ids = Vec::with_capacity(32);
-
-        while i < len {
-            // Skip whitespace and commas
-            while i < len
-                && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r')
-            {
-                i += 1;
-            }
-
-            if i >= len || bytes[i] == b')' {
-                break;
-            }
-
-            // Expect '#' followed by number
-            if bytes[i] == b'#' {
-                i += 1;
-                let start = i;
-                while i < len && bytes[i].is_ascii_digit() {
-                    i += 1;
-                }
-                if i > start {
-                    // Fast integer parsing directly from ASCII digits
-                    let mut id = 0u32;
-                    for &b in &bytes[start..i] {
-                        id = id.wrapping_mul(10).wrapping_add((b - b'0') as u32);
-                    }
-                    ids.push(id);
-                }
-            } else {
-                i += 1; // Skip unknown character
-            }
-        }
-
-        if ids.is_empty() {
-            None
-        } else {
-            Some(ids)
-        }
-    }
-
-    /// Fast extraction of PolyLoop point IDs directly from raw bytes
-    /// Bypasses full entity decoding for BREP optimization
-    /// Returns list of entity IDs for CartesianPoints
-    #[inline]
-    pub fn get_polyloop_point_ids_fast(&mut self, entity_id: u32) -> Option<Vec<u32>> {
-        let bytes = self.get_raw_bytes(entity_id)?;
-
-        // IFCPOLYLOOP((#id1,#id2,#id3,...));
-        let mut i = 0;
-        let len = bytes.len();
-
-        // Skip to first '(' after '='
-        while i < len && bytes[i] != b'(' {
-            i += 1;
-        }
-        if i >= len {
-            return None;
-        }
-        i += 1; // Skip first '('
-
-        // Skip to second '(' for the point list
-        while i < len && bytes[i] != b'(' {
-            i += 1;
-        }
-        if i >= len {
-            return None;
-        }
-        i += 1; // Skip second '('
-
-        // Parse point IDs
-        let mut point_ids = Vec::with_capacity(8); // Most faces have 3-8 vertices
-
-        while i < len {
-            // Skip whitespace and commas
-            while i < len
-                && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r')
-            {
-                i += 1;
-            }
-
-            if i >= len || bytes[i] == b')' {
-                break;
-            }
-
-            // Expect '#' followed by number
-            if bytes[i] == b'#' {
-                i += 1;
-                let start = i;
-                while i < len && bytes[i].is_ascii_digit() {
-                    i += 1;
-                }
-                if i > start {
-                    // Fast integer parsing directly from ASCII digits
-                    let mut id = 0u32;
-                    for &b in &bytes[start..i] {
-                        id = id.wrapping_mul(10).wrapping_add((b - b'0') as u32);
-                    }
-                    point_ids.push(id);
-                }
-            } else {
-                i += 1; // Skip unknown character
-            }
-        }
-
-        if point_ids.is_empty() {
-            None
-        } else {
-            Some(point_ids)
-        }
-    }
-
-    /// Fast extraction of CartesianPoint coordinates directly from raw bytes
-    /// Bypasses full entity decoding for ~3x speedup on BREP-heavy files
-    /// Returns (x, y, z) as f64 tuple
-    #[inline]
-    pub fn get_cartesian_point_fast(&mut self, entity_id: u32) -> Option<(f64, f64, f64)> {
-        let bytes = self.get_raw_bytes(entity_id)?;
-
-        // Find opening paren for coordinates: IFCCARTESIANPOINT((x,y,z));
-        let mut i = 0;
-        let len = bytes.len();
-
-        // Skip to first '(' after '='
-        while i < len && bytes[i] != b'(' {
-            i += 1;
-        }
-        if i >= len {
-            return None;
-        }
-        i += 1; // Skip first '('
-
-        // Skip to second '(' for the coordinate list
-        while i < len && bytes[i] != b'(' {
-            i += 1;
-        }
-        if i >= len {
-            return None;
-        }
-        i += 1; // Skip second '('
-
-        // Parse x coordinate
-        let x = parse_next_float(&bytes[i..], &mut i)?;
-
-        // Parse y coordinate
-        let y = parse_next_float(&bytes[i..], &mut i)?;
-
-        // Parse z coordinate (optional for 2D points, default to 0)
-        let z = parse_next_float(&bytes[i..], &mut i).unwrap_or(0.0);
-
-        Some((x, y, z))
-    }
-
-    /// Fast extraction of FaceBound info directly from raw bytes
-    /// Returns (loop_id, orientation, is_outer_bound)
-    /// Bypasses full entity decoding for BREP optimization
-    #[inline]
-    pub fn get_face_bound_fast(&mut self, entity_id: u32) -> Option<(u32, bool, bool)> {
-        let bytes = self.get_raw_bytes(entity_id)?;
-        let len = bytes.len();
-
-        // Find '=' to locate start of type name, and '(' for end
-        let mut eq_pos = 0;
-        while eq_pos < len && bytes[eq_pos] != b'=' {
-            eq_pos += 1;
-        }
-        if eq_pos >= len {
-            return None;
-        }
-
-        // Check if this is an outer bound - just scan the type name part
-        // IFCFACEOUTERBOUND vs IFCFACEBOUND
-        // The type name is between '=' and '('
-        let mut is_outer = false;
-        let mut i = eq_pos + 1;
-        while i < len && bytes[i] != b'(' {
-            if bytes[i] == b'O' {
-                is_outer = true;
-            }
-            i += 1;
-        }
-        if i >= len {
-            return None;
-        }
-
-        i += 1; // Skip first '('
-
-        // Skip whitespace
-        while i < len && (bytes[i] == b' ' || bytes[i] == b'\n' || bytes[i] == b'\r') {
-            i += 1;
-        }
-
-        // Expect '#' for loop entity ref
-        if i >= len || bytes[i] != b'#' {
-            return None;
-        }
-        i += 1;
-
-        // Parse loop ID
-        let start = i;
-        while i < len && bytes[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i <= start {
-            return None;
-        }
-        let mut loop_id = 0u32;
-        for &b in &bytes[start..i] {
-            loop_id = loop_id.wrapping_mul(10).wrapping_add((b - b'0') as u32);
-        }
-
-        // Find orientation after comma - default to true (.T.)
-        // Skip to comma
-        while i < len && bytes[i] != b',' {
-            i += 1;
-        }
-        i += 1; // Skip comma
-
-        // Skip whitespace
-        while i < len && (bytes[i] == b' ' || bytes[i] == b'\n' || bytes[i] == b'\r') {
-            i += 1;
-        }
-
-        // Check for .F. (false) or .T. (true)
-        let orientation = if i + 2 < len && bytes[i] == b'.' && bytes[i + 2] == b'.' {
-            bytes[i + 1] != b'F'
-        } else {
-            true // Default to true
-        };
-
-        Some((loop_id, orientation, is_outer))
-    }
-}
-
-/// Parse next float from bytes, advancing position past it
-#[inline]
-fn parse_next_float(bytes: &[u8], offset: &mut usize) -> Option<f64> {
-    let len = bytes.len();
-    let mut i = 0;
-
-    // Skip whitespace and commas
-    while i < len
-        && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r')
-    {
-        i += 1;
-    }
-
-    if i >= len || bytes[i] == b')' {
-        return None;
-    }
-
-    // Parse float using fast_float
-    match fast_float::parse_partial::<f64, _>(&bytes[i..]) {
-        Ok((value, consumed)) if consumed > 0 => {
-            *offset += i + consumed;
-            Some(value)
-        }
-        _ => None,
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::IfcType;
 
     #[test]
     fn test_decode_entity() {

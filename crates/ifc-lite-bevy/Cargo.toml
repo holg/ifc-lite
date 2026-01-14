@@ -1,0 +1,93 @@
+[package]
+name = "ifc-lite-bevy"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bevy-based 3D viewer for IFC models with WebGPU/WebGL2 rendering"
+
+[lib]
+name = "ifc_lite_bevy"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+webgl2 = []
+
+[dependencies]
+# Core IFC parsing and geometry
+ifc-lite-core = { path = "../../rust/core" }
+ifc-lite-geometry = { path = "../../rust/geometry" }
+
+# Math library (same as ifc-lite-geometry)
+nalgebra = { version = "0.33", default-features = false, features = ["std"] }
+
+# Error handling
+anyhow = "1.0"
+log = "0.4"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Fast hashing
+rustc-hash = "1.1"
+
+# Bevy 3D engine - common features
+bevy = { version = "0.18", default-features = false, features = [
+    "bevy_asset",
+    "bevy_winit",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_state",
+    "bevy_gizmos",
+    "bevy_picking",
+    "tonemapping_luts",
+    "png",
+    "zstd_rust",
+] }
+
+# Native-only dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { version = "0.18", default-features = false, features = [
+    "bevy_asset",
+    "bevy_winit",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_state",
+    "bevy_gizmos",
+    "bevy_picking",
+    "multi_threaded",
+    "tonemapping_luts",
+    "png",
+    "x11",
+    "zstd_rust",
+] }
+
+# WASM build: add webgl2 feature to Bevy
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+base64 = "0.22"
+bevy = { version = "0.18", default-features = false, features = [
+    "bevy_asset",
+    "bevy_winit",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_state",
+    "bevy_gizmos",
+    "bevy_picking",
+    "webgl2",
+    "tonemapping_luts",
+    "png",
+    "zstd_rust",
+] }
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Storage", "console"] }

@@ -1,0 +1,77 @@
+[package]
+name = "ifc-lite-yew"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Yew-based UI components for IFC-Lite viewer"
+
+[lib]
+name = "ifc_lite_yew"
+path = "src/lib.rs"
+
+[dependencies]
+# Core IFC parsing
+ifc-lite-core = { path = "../../rust/core", features = ["serde"] }
+ifc-lite-geometry = { path = "../../rust/geometry" }
+
+# Yew framework
+yew = { version = "0.22", features = ["csr"] }
+
+# WASM utilities
+gloo = "0.11"
+gloo-file = { version = "0.3", features = ["futures"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Fast hashing
+rustc-hash = "1.1"
+
+# Logging
+log = "0.4"
+
+# Base64 for binary data
+base64 = "0.22"
+
+# For deriving PartialEq on state
+derive_more = { version = "1.0", features = ["full"] }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "Clipboard",
+    "console",
+    "Document",
+    "DragEvent",
+    "DataTransfer",
+    "Element",
+    "Event",
+    "EventTarget",
+    "File",
+    "FileList",
+    "FileReader",
+    "Headers",
+    "HtmlCanvasElement",
+    "HtmlElement",
+    "HtmlInputElement",
+    "HtmlSelectElement",
+    "KeyboardEvent",
+    "Location",
+    "MouseEvent",
+    "Navigator",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Storage",
+    "Url",
+    "UrlSearchParams",
+    "WheelEvent",
+    "Window",
+]

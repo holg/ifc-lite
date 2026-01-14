@@ -1,0 +1,30 @@
+[package]
+name = "ifc-lite-viewer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "IFC-Lite web viewer application"
+
+[[bin]]
+name = "ifc_lite_viewer"
+path = "src/main.rs"
+
+[dependencies]
+# UI components
+ifc-lite-yew = { path = "../ifc-lite-yew" }
+
+# Core IFC parsing
+ifc-lite-core = { path = "../../rust/core", features = ["serde"] }
+ifc-lite-geometry = { path = "../../rust/geometry" }
+
+# Yew framework
+yew = { version = "0.22", features = ["csr"] }
+
+# WASM
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+# Logging
+log = "0.4"
