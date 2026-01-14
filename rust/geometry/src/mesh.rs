@@ -37,6 +37,7 @@ impl Mesh {
     }
 
     /// Add a vertex with normal
+    #[inline]
     pub fn add_vertex(&mut self, position: Point3<f64>, normal: Vector3<f64>) {
         self.positions.push(position.x as f32);
         self.positions.push(position.y as f32);
@@ -48,6 +49,7 @@ impl Mesh {
     }
 
     /// Add a triangle
+    #[inline]
     pub fn add_triangle(&mut self, i0: u32, i1: u32, i2: u32) {
         self.indices.push(i0);
         self.indices.push(i1);
@@ -57,7 +59,16 @@ impl Mesh {
     /// Merge another mesh into this one
     #[inline]
     pub fn merge(&mut self, other: &Mesh) {
+        if other.is_empty() {
+            return;
+        }
+
         let vertex_offset = (self.positions.len() / 3) as u32;
+
+        // Pre-allocate for the incoming data
+        self.positions.reserve(other.positions.len());
+        self.normals.reserve(other.normals.len());
+        self.indices.reserve(other.indices.len());
 
         self.positions.extend_from_slice(&other.positions);
         self.normals.extend_from_slice(&other.normals);
@@ -90,21 +101,25 @@ impl Mesh {
     }
 
     /// Get vertex count
+    #[inline]
     pub fn vertex_count(&self) -> usize {
         self.positions.len() / 3
     }
 
     /// Get triangle count
+    #[inline]
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
     }
 
     /// Check if mesh is empty
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.positions.is_empty()
     }
 
-    /// Calculate bounds (min, max)
+    /// Calculate bounds (min, max) - optimized with chunk iteration
+    #[inline]
     pub fn bounds(&self) -> (Point3<f32>, Point3<f32>) {
         if self.is_empty() {
             return (Point3::origin(), Point3::origin());
@@ -113,21 +128,26 @@ impl Mesh {
         let mut min = Point3::new(f32::MAX, f32::MAX, f32::MAX);
         let mut max = Point3::new(f32::MIN, f32::MIN, f32::MIN);
 
-        for i in (0..self.positions.len()).step_by(3) {
-            let x = self.positions[i];
-            let y = self.positions[i + 1];
-            let z = self.positions[i + 2];
-
+        // Use chunks for better cache locality
+        self.positions.chunks_exact(3).for_each(|chunk| {
+            let (x, y, z) = (chunk[0], chunk[1], chunk[2]);
             min.x = min.x.min(x);
             min.y = min.y.min(y);
             min.z = min.z.min(z);
-
             max.x = max.x.max(x);
             max.y = max.y.max(y);
             max.z = max.z.max(z);
-        }
+        });
 
         (min, max)
+    }
+
+    /// Clear the mesh
+    #[inline]
+    pub fn clear(&mut self) {
+        self.positions.clear();
+        self.normals.clear();
+        self.indices.clear();
     }
 }
 

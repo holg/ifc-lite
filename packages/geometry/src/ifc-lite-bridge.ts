@@ -7,8 +7,38 @@
  * Replaces web-ifc-bridge.ts with native IFC-Lite implementation (1.9x faster)
  */
 
-import init, { IfcAPI, MeshCollection } from '@ifc-lite/wasm';
-export type { MeshCollection };
+import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData } from '@ifc-lite/wasm';
+export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData };
+
+export interface StreamingProgress {
+  percent: number;
+  processed: number;
+  total: number;
+  phase: 'simple' | 'simple_complete' | 'complex';
+}
+
+export interface StreamingStats {
+  totalMeshes: number;
+  totalVertices: number;
+  totalTriangles: number;
+}
+
+export interface InstancedStreamingStats {
+  totalGeometries: number;
+  totalInstances: number;
+}
+
+export interface ParseMeshesAsyncOptions {
+  batchSize?: number;
+  onBatch?: (meshes: MeshDataJs[], progress: StreamingProgress) => void;
+  onComplete?: (stats: StreamingStats) => void;
+}
+
+export interface ParseMeshesInstancedAsyncOptions {
+  batchSize?: number;
+  onBatch?: (geometries: InstancedGeometry[], progress: StreamingProgress) => void;
+  onComplete?: (stats: InstancedStreamingStats) => void;
+}
 
 export class IfcLiteBridge {
   private ifcApi: IfcAPI | null = null;
@@ -16,22 +46,20 @@ export class IfcLiteBridge {
 
   /**
    * Initialize IFC-Lite WASM
+   * The WASM binary is automatically resolved from the same location as the JS module
    */
-  async init(wasmPath: string = '/'): Promise<void> {
+  async init(_wasmPath?: string): Promise<void> {
     if (this.initialized) return;
 
-    // Initialize WASM module
-    const wasmUrl = wasmPath.endsWith('/')
-      ? `${wasmPath}ifc_lite_wasm_bg.wasm`
-      : `${wasmPath}/ifc_lite_wasm_bg.wasm`;
-
-    await init(wasmUrl);
+    // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL
+    // from import.meta.url, no need to manually construct paths
+    await init();
     this.ifcApi = new IfcAPI();
     this.initialized = true;
   }
 
   /**
-   * Parse IFC content and return mesh collection
+   * Parse IFC content and return mesh collection (blocking)
    * Returns individual meshes with express IDs and colors
    */
   parseMeshes(content: string): MeshCollection {
@@ -39,6 +67,43 @@ export class IfcLiteBridge {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
     return this.ifcApi.parseMeshes(content);
+  }
+
+  /**
+   * Parse IFC content and return instanced geometry collection (blocking)
+   * Groups identical geometries by hash and returns instances with transforms
+   * Reduces draw calls significantly for buildings with repeated elements
+   */
+  parseMeshesInstanced(content: string): InstancedMeshCollection {
+    if (!this.ifcApi) {
+      throw new Error('IFC-Lite not initialized. Call init() first.');
+    }
+    return this.ifcApi.parseMeshesInstanced(content);
+  }
+
+  /**
+   * Parse IFC content with streaming (non-blocking)
+   * Yields batches progressively for fast first frame
+   * Simple geometry (walls, slabs, beams) processed first
+   */
+  async parseMeshesAsync(content: string, options: ParseMeshesAsyncOptions = {}): Promise<void> {
+    if (!this.ifcApi) {
+      throw new Error('IFC-Lite not initialized. Call init() first.');
+    }
+    return this.ifcApi.parseMeshesAsync(content, options);
+  }
+
+  /**
+   * Parse IFC content with streaming instanced geometry (non-blocking)
+   * Groups identical geometries and yields batches progressively
+   * Simple geometry (walls, slabs, beams) processed first
+   * Reduces draw calls significantly for buildings with repeated elements
+   */
+  async parseMeshesInstancedAsync(content: string, options: ParseMeshesInstancedAsyncOptions = {}): Promise<void> {
+    if (!this.ifcApi) {
+      throw new Error('IFC-Lite not initialized. Call init() first.');
+    }
+    return this.ifcApi.parseMeshesInstancedAsync(content, options);
   }
 
   /**

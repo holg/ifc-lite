@@ -7,8 +7,32 @@
  * Replaces mesh-collector.ts - uses native Rust geometry processing (1.9x faster)
  */
 
-import type { IfcAPI } from '@ifc-lite/wasm';
+import type { IfcAPI, MeshDataJs, InstancedGeometry } from '@ifc-lite/wasm';
 import type { MeshData } from './types.js';
+
+export interface StreamingProgress {
+  percent: number;
+  processed: number;
+  total: number;
+  phase: 'simple' | 'simple_complete' | 'complex';
+}
+
+export interface StreamingBatchEvent {
+  type: 'batch';
+  meshes: MeshData[];
+  progress: StreamingProgress;
+}
+
+export interface StreamingCompleteEvent {
+  type: 'complete';
+  stats: {
+    totalMeshes: number;
+    totalVertices: number;
+    totalTriangles: number;
+  };
+}
+
+export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent;
 
 export class IfcLiteMeshCollector {
   private ifcApi: IfcAPI;
@@ -96,68 +120,151 @@ export class IfcLiteMeshCollector {
 
   /**
    * Collect meshes incrementally, yielding batches for progressive rendering
-   * @param batchSize Number of meshes per batch (default: 100)
+   * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
+   * @param batchSize Number of meshes per batch (default: 25 for faster first frame)
    */
-  async *collectMeshesStreaming(batchSize: number = 100): AsyncGenerator<MeshData[]> {
-    // const totalStart = performance.now();
+  async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[]> {
+    // Queue to hold batches produced by async callback
+    const batchQueue: MeshData[][] = [];
+    let resolveWaiting: (() => void) | null = null;
+    let isComplete = false;
 
-    // const parseStart = performance.now();
-    const collection = this.ifcApi.parseMeshes(this.content);
-    // const parseTime = performance.now() - parseStart;
+    // Start async processing
+    const processingPromise = this.ifcApi.parseMeshesAsync(this.content, {
+      batchSize,
+      onBatch: (meshes: MeshDataJs[], _progress: StreamingProgress) => {
+        // Convert WASM meshes to MeshData[]
+        const convertedBatch: MeshData[] = [];
 
-    let batch: MeshData[] = [];
-    let processedCount = 0;
+        for (const mesh of meshes) {
+          const colorArray = mesh.color;
+          const color: [number, number, number, number] = [
+            colorArray[0],
+            colorArray[1],
+            colorArray[2],
+            colorArray[3],
+          ];
 
-    // Process meshes in batches
-    for (let i = 0; i < collection.length; i++) {
-      const mesh = collection.get(i);
-      if (!mesh) continue;
+          // Capture arrays once
+          const positions = mesh.positions;
+          const normals = mesh.normals;
+          const indices = mesh.indices;
 
-      // Get color array [r, g, b, a]
-      const colorArray = mesh.color;
-      const color: [number, number, number, number] = [
-        colorArray[0],
-        colorArray[1],
-        colorArray[2],
-        colorArray[3],
-      ];
+          // Convert IFC Z-up to WebGL Y-up
+          this.convertZUpToYUp(positions);
+          this.convertZUpToYUp(normals);
 
-      // Capture arrays once (WASM creates new copies on each access)
-      const positions = mesh.positions;
-      const normals = mesh.normals;
-      const indices = mesh.indices;
+          convertedBatch.push({
+            expressId: mesh.expressId,
+            positions,
+            normals,
+            indices,
+            color,
+          });
 
-      // Convert IFC Z-up to WebGL Y-up (modify captured arrays)
-      this.convertZUpToYUp(positions);
-      this.convertZUpToYUp(normals);
+          // Free the mesh to avoid memory leaks
+          mesh.free();
+        }
 
-      batch.push({
-        expressId: mesh.expressId,
-        positions,
-        normals,
-        indices,
-        color,
-      });
+        // Add batch to queue
+        batchQueue.push(convertedBatch);
 
-      // Free the individual mesh
-      mesh.free();
-      processedCount++;
+        // Wake up the generator if it's waiting
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      },
+      onComplete: (_stats: { totalMeshes: number; totalVertices: number; totalTriangles: number }) => {
+        isComplete = true;
+        // Wake up the generator if it's waiting
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      },
+    });
 
-      // Yield batch when full
-      if (batch.length >= batchSize) {
-        yield batch;
-        batch = [];
-        // Yield to UI thread
-        await new Promise(resolve => setTimeout(resolve, 0));
+    // Yield batches as they become available
+    while (true) {
+      // Yield any queued batches
+      while (batchQueue.length > 0) {
+        yield batchQueue.shift()!;
       }
+
+      // Check if we're done
+      if (isComplete && batchQueue.length === 0) {
+        break;
+      }
+
+      // Wait for more batches
+      await new Promise<void>((resolve) => {
+        resolveWaiting = resolve;
+      });
     }
 
-    // Yield remaining meshes
-    if (batch.length > 0) {
-      yield batch;
+    // Ensure processing is complete
+    await processingPromise;
+  }
+
+  /**
+   * Collect instanced geometry incrementally, yielding batches for progressive rendering
+   * Groups identical geometries by hash (before transformation) for GPU instancing
+   * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
+   * @param batchSize Number of unique geometries per batch (default: 25)
+   */
+  async *collectInstancedGeometryStreaming(batchSize: number = 25): AsyncGenerator<InstancedGeometry[]> {
+    // Queue to hold batches produced by async callback
+    const batchQueue: InstancedGeometry[][] = [];
+    let resolveWaiting: (() => void) | null = null;
+    let isComplete = false;
+
+    // Start async processing
+    const processingPromise = this.ifcApi.parseMeshesInstancedAsync(this.content, {
+      batchSize,
+      onBatch: (geometries: InstancedGeometry[], _progress: StreamingProgress) => {
+        // NOTE: Do NOT convert Z-up to Y-up here for instanced geometry!
+        // Instance transforms position geometry in world space.
+        // If we convert local positions but not transforms, geometry breaks.
+        // The viewer handles coordinate system in the camera/shader.
+        // Add batch directly to queue without modification
+        batchQueue.push(geometries);
+
+        // Wake up the generator if it's waiting
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      },
+      onComplete: (_stats: { totalGeometries: number; totalInstances: number }) => {
+        isComplete = true;
+        // Wake up the generator if it's waiting
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      },
+    });
+
+    // Yield batches as they become available
+    while (true) {
+      // Yield any queued batches
+      while (batchQueue.length > 0) {
+        yield batchQueue.shift()!;
+      }
+
+      // Check if we're done
+      if (isComplete && batchQueue.length === 0) {
+        break;
+      }
+
+      // Wait for more batches
+      await new Promise<void>((resolve) => {
+        resolveWaiting = resolve;
+      });
     }
 
-    // Free the collection
-    collection.free();
+    // Ensure processing is complete
+    await processingPromise;
   }
 }

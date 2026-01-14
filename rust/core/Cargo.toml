@@ -27,9 +27,15 @@ memchr = "2.7"
 # Fast float/integer parsing (10x faster than std)
 lexical-core = "1.0"
 
+# Even faster float parsing (2-3x faster than lexical-core)
+fast-float = "0.2"
+
 # Async streaming
 futures-core = "0.3"
 futures-util = "0.3"
+
+# SmallVec for stack-allocated small vectors (avoids heap allocation for small lists)
+smallvec = "1.13"
 
 # Optional: serialization
 serde = { version = "1.0", features = ["derive"], optional = true }

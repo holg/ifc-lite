@@ -6,7 +6,7 @@
 //!
 //! Dynamic profile processing for parametric, arbitrary, and composite profiles.
 
-use crate::{Error, Point2, Point3, Result};
+use crate::{Error, Point2, Point3, Result, Vector3};
 use crate::profile::Profile2D;
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory};
 use std::f64::consts::PI;
@@ -23,6 +23,7 @@ impl ProfileProcessor {
     }
 
     /// Process any IFC profile definition
+    #[inline]
     pub fn process(
         &self,
         profile: &DecodedEntity,
@@ -40,6 +41,7 @@ impl ProfileProcessor {
     }
 
     /// Process parametric profiles (rectangle, circle, I-shape, etc.)
+    #[inline]
     fn process_parametric(
         &self,
         profile: &DecodedEntity,
@@ -50,6 +52,7 @@ impl ProfileProcessor {
             IfcType::IfcRectangleProfileDef => self.process_rectangle(profile),
             IfcType::IfcCircleProfileDef => self.process_circle(profile),
             IfcType::IfcCircleHollowProfileDef => self.process_circle_hollow(profile),
+            IfcType::IfcRectangleHollowProfileDef => self.process_rectangle_hollow(profile),
             IfcType::IfcIShapeProfileDef => self.process_i_shape(profile),
             IfcType::IfcLShapeProfileDef => self.process_l_shape(profile),
             IfcType::IfcUShapeProfileDef => self.process_u_shape(profile),
@@ -165,6 +168,7 @@ impl ProfileProcessor {
 
     /// Process rectangle profile
     /// IfcRectangleProfileDef: ProfileType, ProfileName, Position, XDim, YDim
+    #[inline]
     fn process_rectangle(&self, profile: &DecodedEntity) -> Result<Profile2D> {
         // Get dimensions (attributes 3 and 4)
         let x_dim = profile
@@ -190,14 +194,15 @@ impl ProfileProcessor {
 
     /// Process circle profile
     /// IfcCircleProfileDef: ProfileType, ProfileName, Position, Radius
+    #[inline]
     fn process_circle(&self, profile: &DecodedEntity) -> Result<Profile2D> {
         // Get radius (attribute 3)
         let radius = profile
             .get_float(3)
             .ok_or_else(|| Error::geometry("Circle missing Radius".to_string()))?;
 
-        // Generate circle with 64 segments
-        let segments = 64;
+        // Generate circle with 24 segments (matches web-ifc typical quality)
+        let segments = 24;
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -265,7 +270,7 @@ impl ProfileProcessor {
             .ok_or_else(|| Error::geometry("CircleHollow missing WallThickness".to_string()))?;
 
         let inner_radius = radius - wall_thickness;
-        let segments = 64;
+        let segments = 24;
 
         // Outer circle
         let mut outer_points = Vec::with_capacity(segments);
@@ -280,6 +285,54 @@ impl ProfileProcessor {
             let angle = (i as f64) * 2.0 * PI / (segments as f64);
             inner_points.push(Point2::new(inner_radius * angle.cos(), inner_radius * angle.sin()));
         }
+
+        let mut result = Profile2D::new(outer_points);
+        result.add_hole(inner_points);
+        Ok(result)
+    }
+
+    /// Process rectangle hollow profile (rectangular tube)
+    /// IfcRectangleHollowProfileDef: ProfileType, ProfileName, Position, XDim, YDim, WallThickness, InnerFilletRadius, OuterFilletRadius
+    fn process_rectangle_hollow(&self, profile: &DecodedEntity) -> Result<Profile2D> {
+        let x_dim = profile
+            .get_float(3)
+            .ok_or_else(|| Error::geometry("RectangleHollow missing XDim".to_string()))?;
+        let y_dim = profile
+            .get_float(4)
+            .ok_or_else(|| Error::geometry("RectangleHollow missing YDim".to_string()))?;
+        let wall_thickness = profile
+            .get_float(5)
+            .ok_or_else(|| Error::geometry("RectangleHollow missing WallThickness".to_string()))?;
+
+        let half_x = x_dim / 2.0;
+        let half_y = y_dim / 2.0;
+
+        // Validate wall thickness
+        if wall_thickness >= half_x || wall_thickness >= half_y {
+            return Err(Error::geometry(format!(
+                "RectangleHollow WallThickness {} exceeds half dimensions ({}, {})",
+                wall_thickness, half_x, half_y
+            )));
+        }
+
+        let inner_half_x = half_x - wall_thickness;
+        let inner_half_y = half_y - wall_thickness;
+
+        // Outer rectangle (counter-clockwise)
+        let outer_points = vec![
+            Point2::new(-half_x, -half_y),
+            Point2::new(half_x, -half_y),
+            Point2::new(half_x, half_y),
+            Point2::new(-half_x, half_y),
+        ];
+
+        // Inner rectangle (clockwise for hole - reversed order)
+        let inner_points = vec![
+            Point2::new(-inner_half_x, -inner_half_y),
+            Point2::new(-inner_half_x, inner_half_y),
+            Point2::new(inner_half_x, inner_half_y),
+            Point2::new(inner_half_x, -inner_half_y),
+        ];
 
         let mut result = Profile2D::new(outer_points);
         result.add_hole(inner_points);
@@ -449,6 +502,7 @@ impl ProfileProcessor {
     }
 
     /// Process any supported curve type into 2D points
+    #[inline]
     fn process_curve(
         &self,
         curve: &DecodedEntity,
@@ -469,6 +523,7 @@ impl ProfileProcessor {
     }
 
     /// Get 3D points from a curve (for swept disk solid, etc.)
+    #[inline]
     pub fn get_curve_points(
         &self,
         curve: &DecodedEntity,
@@ -477,6 +532,7 @@ impl ProfileProcessor {
         match curve.ifc_type {
             IfcType::IfcPolyline => self.process_polyline_3d(curve, decoder),
             IfcType::IfcCompositeCurve => self.process_composite_curve_3d(curve, decoder),
+            IfcType::IfcCircle => self.process_circle_3d(curve, decoder),
             IfcType::IfcTrimmedCurve => {
                 // For trimmed curve, get 2D points and convert to 3D
                 let points_2d = self.process_trimmed_curve(curve, decoder)?;
@@ -488,6 +544,138 @@ impl ProfileProcessor {
                 Ok(points_2d.into_iter().map(|p| Point3::new(p.x, p.y, 0.0)).collect())
             }
         }
+    }
+
+    /// Process circle curve in 3D space (for swept disk solid, etc.)
+    fn process_circle_3d(
+        &self,
+        curve: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Vec<Point3<f64>>> {
+        // IfcCircle: Position (IfcAxis2Placement2D or 3D), Radius
+        let position_attr = curve.get(0).ok_or_else(|| {
+            Error::geometry("Circle missing Position".to_string())
+        })?;
+
+        let radius = curve.get_float(1).ok_or_else(|| {
+            Error::geometry("Circle missing Radius".to_string())
+        })?;
+
+        let position = decoder.resolve_ref(position_attr)?.ok_or_else(|| {
+            Error::geometry("Failed to resolve circle position".to_string())
+        })?;
+
+        // Get center and orientation from Axis2Placement3D
+        let (center, x_axis, y_axis) = if position.ifc_type == IfcType::IfcAxis2Placement3D {
+            // IfcAxis2Placement3D: Location, Axis (Z), RefDirection (X)
+            let loc_attr = position.get(0).ok_or_else(|| {
+                Error::geometry("Axis2Placement3D missing Location".to_string())
+            })?;
+            let loc = decoder.resolve_ref(loc_attr)?.ok_or_else(|| {
+                Error::geometry("Failed to resolve location".to_string())
+            })?;
+            let coords = loc.get(0).and_then(|v| v.as_list()).ok_or_else(|| {
+                Error::geometry("Location missing coordinates".to_string())
+            })?;
+            let center = Point3::new(
+                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
+            );
+
+            // Get Z axis (Axis attribute)
+            let z_axis = if let Some(axis_attr) = position.get(1) {
+                if !axis_attr.is_null() {
+                    let axis = decoder.resolve_ref(axis_attr)?;
+                    if let Some(axis) = axis {
+                        let coords = axis.get(0).and_then(|v| v.as_list());
+                        if let Some(coords) = coords {
+                            Vector3::new(
+                                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.get(2).and_then(|v| v.as_float()).unwrap_or(1.0),
+                            ).normalize()
+                        } else {
+                            Vector3::new(0.0, 0.0, 1.0)
+                        }
+                    } else {
+                        Vector3::new(0.0, 0.0, 1.0)
+                    }
+                } else {
+                    Vector3::new(0.0, 0.0, 1.0)
+                }
+            } else {
+                Vector3::new(0.0, 0.0, 1.0)
+            };
+
+            // Get X axis (RefDirection attribute)
+            let x_axis = if let Some(ref_attr) = position.get(2) {
+                if !ref_attr.is_null() {
+                    let ref_dir = decoder.resolve_ref(ref_attr)?;
+                    if let Some(ref_dir) = ref_dir {
+                        let coords = ref_dir.get(0).and_then(|v| v.as_list());
+                        if let Some(coords) = coords {
+                            Vector3::new(
+                                coords.get(0).and_then(|v| v.as_float()).unwrap_or(1.0),
+                                coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
+                            ).normalize()
+                        } else {
+                            Vector3::new(1.0, 0.0, 0.0)
+                        }
+                    } else {
+                        Vector3::new(1.0, 0.0, 0.0)
+                    }
+                } else {
+                    Vector3::new(1.0, 0.0, 0.0)
+                }
+            } else {
+                Vector3::new(1.0, 0.0, 0.0)
+            };
+
+            // Y axis = Z cross X
+            let y_axis = z_axis.cross(&x_axis).normalize();
+
+            (center, x_axis, y_axis)
+        } else {
+            // 2D placement - use XY plane
+            let loc_attr = position.get(0);
+            let (cx, cy) = if let Some(attr) = loc_attr {
+                let loc = decoder.resolve_ref(attr)?;
+                if let Some(loc) = loc {
+                    let coords = loc.get(0).and_then(|v| v.as_list());
+                    if let Some(coords) = coords {
+                        (
+                            coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                            coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                        )
+                    } else {
+                        (0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0)
+                }
+            } else {
+                (0.0, 0.0)
+            };
+            (
+                Point3::new(cx, cy, 0.0),
+                Vector3::new(1.0, 0.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            )
+        };
+
+        // Generate circle points in 3D (16 segments for full circle)
+        let segments = 16usize;
+        let mut points = Vec::with_capacity(segments + 1);
+
+        for i in 0..=segments {
+            let angle = 2.0 * std::f64::consts::PI * i as f64 / segments as f64;
+            let p = center + x_axis * (radius * angle.cos()) + y_axis * (radius * angle.sin());
+            points.push(p);
+        }
+
+        Ok(points)
     }
 
     /// Process polyline into 3D points
@@ -659,7 +847,10 @@ impl ProfileProcessor {
         let start_angle = trim1.unwrap_or(0.0).to_radians();
         let end_angle = trim2.unwrap_or(360.0).to_radians();
 
-        let num_segments = 32;
+        // Calculate arc angle and adaptive segment count
+        // Use ~8 segments per 90° (quarter circle), minimum 2
+        let arc_angle = (end_angle - start_angle).abs();
+        let num_segments = ((arc_angle / std::f64::consts::FRAC_PI_2 * 8.0).ceil() as usize).max(2);
         let mut points = Vec::with_capacity(num_segments + 1);
 
         let angle_range = if sense {
@@ -751,7 +942,7 @@ impl ProfileProcessor {
         let radius = curve.get_float(1).unwrap_or(1.0);
         let (center, rotation) = self.get_placement_2d(curve, decoder)?;
 
-        let segments = 64;
+        let segments = 24;
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -778,7 +969,7 @@ impl ProfileProcessor {
         let semi_axis2 = curve.get_float(2).unwrap_or(1.0);
         let (center, rotation) = self.get_placement_2d(curve, decoder)?;
 
-        let segments = 64;
+        let segments = 24;
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -797,6 +988,7 @@ impl ProfileProcessor {
 
     /// Process polyline into 2D points
     /// IfcPolyline: Points (list of IfcCartesianPoint)
+    #[inline]
     fn process_polyline(
         &self,
         polyline: &DecodedEntity,
@@ -902,8 +1094,14 @@ impl ProfileProcessor {
                     let p3 = all_points.get(idx_values[2]).copied();
 
                     if let (Some(start), Some(mid), Some(end)) = (p1, p2, p3) {
-                        // Approximate arc with line segments
-                        let arc_points = self.approximate_arc_3pt(start, mid, end, 16);
+                        // Approximate arc with adaptive segment count based on arc size
+                        // Calculate approximate arc angle from chord length vs radius
+                        let chord_len = ((end.x - start.x).powi(2) + (end.y - start.y).powi(2)).sqrt();
+                        let mid_chord = ((mid.x - (start.x + end.x) / 2.0).powi(2) + (mid.y - (start.y + end.y) / 2.0).powi(2)).sqrt();
+                        // Estimate arc angle: larger mid deviation = larger arc
+                        let arc_estimate = if chord_len > 1e-10 { (mid_chord / chord_len).abs().min(1.0).acos() * 2.0 } else { 0.5 };
+                        let num_segments = ((arc_estimate / std::f64::consts::FRAC_PI_2 * 8.0).ceil() as usize).max(4).min(16);
+                        let arc_points = self.approximate_arc_3pt(start, mid, end, num_segments);
                         for pt in arc_points {
                             if result_points.last() != Some(&pt) {
                                 result_points.push(pt);
@@ -1120,7 +1318,7 @@ mod tests {
         let profile_entity = decoder.decode_by_id(1).unwrap();
         let profile = processor.process(&profile_entity, &mut decoder).unwrap();
 
-        assert_eq!(profile.outer.len(), 64); // Circle with 64 segments
+        assert_eq!(profile.outer.len(), 24); // Circle with 24 segments
         assert!(!profile.outer.is_empty());
     }
 

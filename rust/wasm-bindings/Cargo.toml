@@ -11,7 +11,7 @@ categories = ["wasm", "parsing"]
 readme = "../../README.md"
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = false
+wasm-opt = ["-O4", "--enable-simd", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--enable-sign-ext"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -33,6 +33,7 @@ web-sys = { version = "0.3", features = [
 # Async support
 wasm-bindgen-futures = "0.4"
 futures-util = "0.3"
+gloo-timers = { version = "0.3", features = ["futures"] }
 
 # Error handling
 thiserror = "1.0"

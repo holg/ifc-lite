@@ -82,6 +82,12 @@ pub enum IfcType {
     IfcSweptDiskSolid,
     IfcRevolvedAreaSolid,
     IfcFacetedBrep,
+    IfcFaceOuterBound,
+    IfcFaceBound,
+    IfcAdvancedBrep,
+    IfcAdvancedBrepWithVoids,
+    IfcAdvancedFace,
+    IfcBSplineSurfaceWithKnots,
     IfcTriangulatedFaceSet,
     IfcPolygonalFaceSet,
     IfcBooleanResult,
@@ -103,6 +109,7 @@ pub enum IfcType {
     IfcCShapeProfileDef,
     IfcZShapeProfileDef,
     IfcCircleHollowProfileDef,
+    IfcRectangleHollowProfileDef,
     IfcCompositeProfileDef,
 
     // Curve types
@@ -131,6 +138,14 @@ pub enum IfcType {
     IfcFurnishingElement,
     IfcFurniture,
 
+    // Generic products
+    IfcProxy,
+    IfcProduct,
+    IfcDistributionElement,
+    IfcFlowSegment,
+    IfcFlowFitting,
+    IfcFlowTerminal,
+
     // Annotations
     IfcAnnotation,
     IfcGrid,
@@ -149,15 +164,26 @@ pub enum IfcType {
     IfcOrganization,
     IfcApplication,
 
+    // Georeferencing (IFC4)
+    IfcMapConversion,
+    IfcProjectedCRS,
+    IfcGeometricRepresentationContext,
+
+    // CSG types
+    IfcHalfSpaceSolid,
+    IfcPolygonalBoundedHalfSpace,
+    IfcPlane,
+
     // Fallback for unknown types
     Unknown(u16), // Store hash for unknown types
 }
 
 impl IfcType {
-    /// Parse IFC type from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse IFC type from string.
+    /// Returns the matching variant or `Unknown(hash)` for unrecognized types.
+    pub fn from_str(s: &str) -> Self {
         // Fast path: check common types first
-        let t = match s {
+        match s {
             "IFCWALL" => Self::IfcWall,
             "IFCWALLSTANDARDCASE" => Self::IfcWallStandardCase,
             "IFCSLAB" => Self::IfcSlab,
@@ -220,6 +246,12 @@ impl IfcType {
             "IFCSWEPTDISKSOLID" => Self::IfcSweptDiskSolid,
             "IFCREVOLVEDAREASOLID" => Self::IfcRevolvedAreaSolid,
             "IFCFACETEDBREP" => Self::IfcFacetedBrep,
+            "IFCFACEOUTERBOUND" => Self::IfcFaceOuterBound,
+            "IFCFACEBOUND" => Self::IfcFaceBound,
+            "IFCADVANCEDBREP" => Self::IfcAdvancedBrep,
+            "IFCADVANCEDBREPWITHVOIDS" => Self::IfcAdvancedBrepWithVoids,
+            "IFCADVANCEDFACE" => Self::IfcAdvancedFace,
+            "IFCBSPLINESURFACEWITHKNOTS" => Self::IfcBSplineSurfaceWithKnots,
             "IFCTRIANGULATEDFACESET" => Self::IfcTriangulatedFaceSet,
             "IFCPOLYGONALFACESET" => Self::IfcPolygonalFaceSet,
             "IFCBOOLEANRESULT" => Self::IfcBooleanResult,
@@ -241,6 +273,7 @@ impl IfcType {
             "IFCCSHAPEPROFILEDEF" => Self::IfcCShapeProfileDef,
             "IFCZSHAPEPROFILEDEF" => Self::IfcZShapeProfileDef,
             "IFCCIRCLEHOLLOWPROFILEDEF" => Self::IfcCircleHollowProfileDef,
+            "IFCRECTANGLEHOLLOWPROFILEDEF" => Self::IfcRectangleHollowProfileDef,
             "IFCCOMPOSITEPROFILEDEF" => Self::IfcCompositeProfileDef,
 
             // Curve types
@@ -282,13 +315,30 @@ impl IfcType {
             "IFCORGANIZATION" => Self::IfcOrganization,
             "IFCAPPLICATION" => Self::IfcApplication,
 
+            // Georeferencing
+            "IFCMAPCONVERSION" => Self::IfcMapConversion,
+            "IFCPROJECTEDCRS" => Self::IfcProjectedCRS,
+            "IFCGEOMETRICREPRESENTATIONCONTEXT" => Self::IfcGeometricRepresentationContext,
+
+            // CSG types
+            "IFCHALFSPACESOLID" => Self::IfcHalfSpaceSolid,
+            "IFCPOLYGONALBOUNDEDHALFSPACE" => Self::IfcPolygonalBoundedHalfSpace,
+            "IFCPLANE" => Self::IfcPlane,
+
+            // Generic products
+            "IFCPROXY" => Self::IfcProxy,
+            "IFCPRODUCT" => Self::IfcProduct,
+            "IFCDISTRIBUTIONELEMENT" => Self::IfcDistributionElement,
+            "IFCFLOWSEGMENT" => Self::IfcFlowSegment,
+            "IFCFLOWFITTING" => Self::IfcFlowFitting,
+            "IFCFLOWTERMINAL" => Self::IfcFlowTerminal,
+
             _ => {
                 // Unknown type - store a hash
                 let hash = simple_hash(s);
                 Self::Unknown(hash)
             }
-        };
-        Some(t)
+        }
     }
 
     /// Get string representation
@@ -356,6 +406,12 @@ impl IfcType {
             Self::IfcSweptDiskSolid => "IFCSWEPTDISKSOLID",
             Self::IfcRevolvedAreaSolid => "IFCREVOLVEDAREASOLID",
             Self::IfcFacetedBrep => "IFCFACETEDBREP",
+            Self::IfcFaceOuterBound => "IFCFACEOUTERBOUND",
+            Self::IfcFaceBound => "IFCFACEBOUND",
+            Self::IfcAdvancedBrep => "IFCADVANCEDBREP",
+            Self::IfcAdvancedBrepWithVoids => "IFCADVANCEDBREPWITHVOIDS",
+            Self::IfcAdvancedFace => "IFCADVANCEDFACE",
+            Self::IfcBSplineSurfaceWithKnots => "IFCBSPLINESURFACEWITHKNOTS",
             Self::IfcTriangulatedFaceSet => "IFCTRIANGULATEDFACESET",
             Self::IfcPolygonalFaceSet => "IFCPOLYGONALFACESET",
             Self::IfcBooleanResult => "IFCBOOLEANRESULT",
@@ -377,6 +433,7 @@ impl IfcType {
             Self::IfcCShapeProfileDef => "IFCCSHAPEPROFILEDEF",
             Self::IfcZShapeProfileDef => "IFCZSHAPEPROFILEDEF",
             Self::IfcCircleHollowProfileDef => "IFCCIRCLEHOLLOWPROFILEDEF",
+            Self::IfcRectangleHollowProfileDef => "IFCRECTANGLEHOLLOWPROFILEDEF",
             Self::IfcCompositeProfileDef => "IFCCOMPOSITEPROFILEDEF",
 
             // Curve types
@@ -417,6 +474,24 @@ impl IfcType {
             Self::IfcPerson => "IFCPERSON",
             Self::IfcOrganization => "IFCORGANIZATION",
             Self::IfcApplication => "IFCAPPLICATION",
+
+            // Georeferencing
+            Self::IfcMapConversion => "IFCMAPCONVERSION",
+            Self::IfcProjectedCRS => "IFCPROJECTEDCRS",
+            Self::IfcGeometricRepresentationContext => "IFCGEOMETRICREPRESENTATIONCONTEXT",
+
+            // CSG types
+            Self::IfcHalfSpaceSolid => "IFCHALFSPACESOLID",
+            Self::IfcPolygonalBoundedHalfSpace => "IFCPOLYGONALBOUNDEDHALFSPACE",
+            Self::IfcPlane => "IFCPLANE",
+
+            // Generic products
+            Self::IfcProxy => "IFCPROXY",
+            Self::IfcProduct => "IFCPRODUCT",
+            Self::IfcDistributionElement => "IFCDISTRIBUTIONELEMENT",
+            Self::IfcFlowSegment => "IFCFLOWSEGMENT",
+            Self::IfcFlowFitting => "IFCFLOWFITTING",
+            Self::IfcFlowTerminal => "IFCFLOWTERMINAL",
 
             Self::Unknown(_) => "UNKNOWN",
         }
@@ -582,13 +657,44 @@ pub fn has_geometry_by_name(type_name: &str) -> bool {
         "IFCVIRTUALELEMENT",
     ];
 
+    // IFC4x3 Infrastructure elements
+    let infrastructure = [
+        "IFCROAD", "IFCROADPART",
+        "IFCRAILWAY", "IFCRAILWAYPART",
+        "IFCBRIDGE", "IFCBRIDGEPART",
+        "IFCFACILITY", "IFCFACILITYPART",
+        "IFCPAVEMENT", "IFCKERB", "IFCCOURSE",
+        "IFCEARTHWORKSCUT", "IFCEARTHWORKSFILL", "IFCEARTHWORKSELEMENT",
+        "IFCALIGNMENT", "IFCLINEARPOSITIONINGELEMENT",
+        "IFCREFERENT", "IFCSECTIONEDSPINE",
+        "IFCNAVIGATIONELEMENT", "IFCSIGN", "IFCSIGNAL",
+    ];
+
+    // IFC2X3 legacy elements (deprecated in IFC4 but still used)
+    let legacy = [
+        "IFCELECTRICDISTRIBUTIONPOINT",
+        "IFCGASTERMINAL",
+        "IFCELECTRICALELEMENT",
+        "IFCEQUIPMENTELEMENT",
+    ];
+
+    // Generic placeholders that can contain geometry
+    let generic = [
+        "IFCPROXY",
+        "IFCPRODUCT",
+        "IFCANNOTATION",
+    ];
+
     // Check all categories
     building_elements.contains(&type_name) ||
     openings.contains(&type_name) ||
     assemblies.contains(&type_name) ||
     mep.contains(&type_name) ||
     furniture.contains(&type_name) ||
-    civil.contains(&type_name)
+    civil.contains(&type_name) ||
+    infrastructure.contains(&type_name) ||
+    legacy.contains(&type_name) ||
+    generic.contains(&type_name)
 }
 
 impl fmt::Display for IfcType {
@@ -612,9 +718,9 @@ mod tests {
 
     #[test]
     fn test_from_str() {
-        assert_eq!(IfcType::from_str("IFCWALL"), Some(IfcType::IfcWall));
-        assert_eq!(IfcType::from_str("IFCDOOR"), Some(IfcType::IfcDoor));
-        assert_eq!(IfcType::from_str("IFCPROJECT"), Some(IfcType::IfcProject));
+        assert_eq!(IfcType::from_str("IFCWALL"), IfcType::IfcWall);
+        assert_eq!(IfcType::from_str("IFCDOOR"), IfcType::IfcDoor);
+        assert_eq!(IfcType::from_str("IFCPROJECT"), IfcType::IfcProject);
     }
 
     #[test]
@@ -639,7 +745,7 @@ mod tests {
 
     #[test]
     fn test_unknown_type() {
-        let unknown = IfcType::from_str("IFCCUSTOMTYPE").unwrap();
+        let unknown = IfcType::from_str("IFCCUSTOMTYPE");
         assert!(matches!(unknown, IfcType::Unknown(_)));
     }
 }
