@@ -2,13 +2,13 @@
 //!
 //! Handles raycasting for object selection and hover detection.
 
-use bevy::prelude::*;
-use bevy::camera::primitives::MeshAabb;
-use bevy::window::PrimaryWindow;
-use rustc_hash::FxHashSet;
 use crate::camera::MainCamera;
 use crate::mesh::IfcEntity;
-use crate::storage::{SelectionStorage, save_selection};
+use crate::storage::{save_selection, SelectionStorage};
+use bevy::camera::primitives::MeshAabb;
+use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
+use rustc_hash::FxHashSet;
 
 /// Picking plugin
 pub struct PickingPlugin;
@@ -17,10 +17,7 @@ impl Plugin for PickingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SelectionState>()
             .init_resource::<PickingSettings>()
-            .add_systems(Update, (
-                picking_system,
-                hover_system,
-            ));
+            .add_systems(Update, (picking_system, hover_system));
     }
 }
 
@@ -103,6 +100,7 @@ impl Default for PickingSettings {
 }
 
 /// Picking system - handles click selection
+#[allow(clippy::too_many_arguments)]
 fn picking_system(
     mouse_button: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -122,11 +120,17 @@ fn picking_system(
     }
 
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.cursor_position() else { return };
-    let Ok((camera, camera_transform)) = cameras.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    let Ok((camera, camera_transform)) = cameras.single() else {
+        return;
+    };
 
     // Create ray from camera through cursor
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else { return };
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+        return;
+    };
 
     // Find closest intersection
     let mut closest: Option<(u64, f32)> = None;
@@ -155,8 +159,7 @@ fn picking_system(
         }
     } else {
         // Clicked on empty space - clear selection
-        if !keyboard.pressed(KeyCode::ControlLeft)
-            && !keyboard.pressed(KeyCode::ControlRight) {
+        if !keyboard.pressed(KeyCode::ControlLeft) && !keyboard.pressed(KeyCode::ControlRight) {
             selection.clear();
         }
     }
@@ -178,7 +181,7 @@ fn hover_system(
 
     // Throttle hover detection
     *frame_counter += 1;
-    if *frame_counter % settings.hover_throttle != 0 {
+    if !(*frame_counter).is_multiple_of(settings.hover_throttle) {
         return;
     }
 
@@ -189,10 +192,14 @@ fn hover_system(
         }
         return;
     };
-    let Ok((camera, camera_transform)) = cameras.single() else { return };
+    let Ok((camera, camera_transform)) = cameras.single() else {
+        return;
+    };
 
     // Create ray from camera through cursor
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else { return };
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+        return;
+    };
 
     // Find closest intersection
     let mut closest: Option<(u64, f32)> = None;
@@ -216,11 +223,7 @@ fn hover_system(
 
 /// Simple ray-mesh intersection using bounding box (fast approximation)
 /// For more accurate picking, use bevy_mod_raycast or similar
-fn ray_mesh_intersection(
-    ray: &Ray3d,
-    mesh: &Mesh,
-    transform: &GlobalTransform,
-) -> Option<f32> {
+fn ray_mesh_intersection(ray: &Ray3d, mesh: &Mesh, transform: &GlobalTransform) -> Option<f32> {
     // Get mesh AABB
     let aabb = mesh.compute_aabb()?;
 

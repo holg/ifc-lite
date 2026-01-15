@@ -23,8 +23,8 @@ ifc-lite-geometry = { path = "../../rust/geometry" }
 yew = { version = "0.22", features = ["csr"] }
 
 # WASM
-wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
 
 # Logging
 log = "0.4"

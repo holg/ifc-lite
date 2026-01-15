@@ -1,8 +1,8 @@
 //! Properties panel - shows selected entity details
 
+use crate::state::{ViewerAction, ViewerStateContext};
 use std::collections::HashSet;
 use yew::prelude::*;
-use crate::state::{ViewerAction, ViewerStateContext};
 
 /// Properties panel component
 #[function_component]
@@ -10,7 +10,10 @@ pub fn PropertiesPanel() -> Html {
     let state = use_context::<ViewerStateContext>().expect("ViewerStateContext not found");
 
     // Get selected entity
-    let selected_entity = state.selected_ids.iter().next()
+    let selected_entity = state
+        .selected_ids
+        .iter()
+        .next()
         .and_then(|id| state.entities.iter().find(|e| e.id == *id));
 
     html! {

@@ -2,11 +2,11 @@
 //!
 //! Provides clipping plane functionality for viewing building cross-sections.
 
-use bevy::prelude::*;
-use crate::storage::SectionStorage;
 #[cfg(target_arch = "wasm32")]
 #[allow(unused_imports)]
 use crate::storage::load_section;
+use crate::storage::SectionStorage;
+use bevy::prelude::*;
 
 /// Section plane plugin
 pub struct SectionPlanePlugin;
@@ -35,15 +35,19 @@ impl SectionAxis {
             SectionAxis::Y => Vec3::Y,
             SectionAxis::Z => Vec3::Z,
         };
-        if flipped { -base } else { base }
+        if flipped {
+            -base
+        } else {
+            base
+        }
     }
 
     /// Parse from string
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "x" => SectionAxis::X,
             "y" => SectionAxis::Y,
-            "z" | _ => SectionAxis::Z,
+            _ => SectionAxis::Z,
         }
     }
 
@@ -135,7 +139,7 @@ impl SectionPlane {
     /// Load from storage
     pub fn from_storage(&mut self, storage: &SectionStorage) {
         self.enabled = storage.enabled;
-        self.axis = SectionAxis::from_str(&storage.axis);
+        self.axis = SectionAxis::parse(&storage.axis);
         self.position = storage.position;
         self.flipped = storage.flipped;
         self.update_plane();
@@ -153,6 +157,7 @@ impl SectionPlane {
 }
 
 /// Poll section settings from localStorage
+#[allow(unused_mut)]
 fn poll_section_settings(mut section: ResMut<SectionPlane>) {
     #[cfg(target_arch = "wasm32")]
     {

@@ -29,11 +29,7 @@ pub fn format_file_size(bytes: usize) -> String {
 /// Get entity type display name
 pub fn get_entity_display_name(entity_type: &str) -> &str {
     // Strip "Ifc" prefix and split camel case
-    if entity_type.starts_with("Ifc") {
-        &entity_type[3..]
-    } else {
-        entity_type
-    }
+    entity_type.strip_prefix("Ifc").unwrap_or(entity_type)
 }
 
 /// Get icon name for entity type
@@ -174,7 +170,9 @@ pub async fn fetch_ifc_file(url: &str) -> Result<String, String> {
     }
 
     // Get text body
-    let text_promise = resp.text().map_err(|e| format!("Failed to get text: {:?}", e))?;
+    let text_promise = resp
+        .text()
+        .map_err(|e| format!("Failed to get text: {:?}", e))?;
     let text_value = JsFuture::from(text_promise)
         .await
         .map_err(|e| format!("Failed to read response: {:?}", e))?;

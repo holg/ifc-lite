@@ -1,9 +1,10 @@
 //! Toolbar component with tool buttons and file operations
 
 use crate::bridge::{self, EntityData, GeometryData};
-use crate::state::{Progress, PropertySet, PropertyValue, QuantityValue, Tool, ViewerAction, ViewerStateContext};
+use crate::state::{
+    Progress, PropertySet, PropertyValue, QuantityValue, Tool, ViewerAction, ViewerStateContext,
+};
 use gloo_file::callbacks::FileReader;
-use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
@@ -68,7 +69,10 @@ pub fn Toolbar() -> Html {
                                             });
                                         }
                                         Err(e) => {
-                                            bridge::log_error(&format!("Failed to process IFC: {}", e));
+                                            bridge::log_error(&format!(
+                                                "Failed to process IFC: {}",
+                                                e
+                                            ));
                                             state_inner.dispatch(ViewerAction::SetLoading(false));
                                             state_inner.dispatch(ViewerAction::ClearProgress);
                                         }
@@ -287,6 +291,7 @@ pub fn Toolbar() -> Html {
 }
 
 /// Spatial structure entity info
+#[allow(dead_code)]
 struct SpatialInfo {
     id: u32,
     name: String,
@@ -399,10 +404,7 @@ fn extract_properties_and_quantities(
                     for qty_id in qty_refs {
                         if let Ok(qty) = decoder.decode_by_id(qty_id) {
                             // IfcPhysicalQuantity subtypes: Name, Description, ...values
-                            let name = qty
-                                .get_string(0)
-                                .map(|s| s.to_string())
-                                .unwrap_or_default();
+                            let name = qty.get_string(0).map(|s| s.to_string()).unwrap_or_default();
 
                             let (value, unit, qty_type) = match qty.ifc_type {
                                 ifc_lite_core::IfcType::IfcQuantityLength => {
@@ -481,10 +483,10 @@ fn format_property_value(val: &ifc_lite_core::AttributeValue) -> String {
 
 /// Parse IFC content and send geometry to Bevy via localStorage
 pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Result<(), String> {
-    use ifc_lite_core::{EntityDecoder, EntityScanner, build_entity_index};
+    use crate::state::{SpatialNode, SpatialNodeType};
+    use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
     use ifc_lite_geometry::GeometryRouter;
     use std::collections::HashMap;
-    use crate::state::{SpatialNode, SpatialNodeType};
 
     bridge::log("Starting IFC parsing...");
 
@@ -548,63 +550,105 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         match type_upper.as_str() {
             "IFCPROJECT" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
-                    let name = entity.get_string(2)
+                    let name = entity
+                        .get_string(2)
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| "Project".to_string());
-                    spatial_entities.insert(id, SpatialInfo {
-                        id, name, entity_type: type_name.to_string(), elevation: None
-                    });
+                    spatial_entities.insert(
+                        id,
+                        SpatialInfo {
+                            id,
+                            name,
+                            entity_type: type_name.to_string(),
+                            elevation: None,
+                        },
+                    );
                 }
             }
             "IFCSITE" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
-                    let name = entity.get_string(2)
+                    let name = entity
+                        .get_string(2)
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| "Site".to_string());
-                    spatial_entities.insert(id, SpatialInfo {
-                        id, name, entity_type: type_name.to_string(), elevation: None
-                    });
+                    spatial_entities.insert(
+                        id,
+                        SpatialInfo {
+                            id,
+                            name,
+                            entity_type: type_name.to_string(),
+                            elevation: None,
+                        },
+                    );
                 }
             }
             "IFCBUILDING" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
-                    let name = entity.get_string(2)
+                    let name = entity
+                        .get_string(2)
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| "Building".to_string());
-                    spatial_entities.insert(id, SpatialInfo {
-                        id, name, entity_type: type_name.to_string(), elevation: None
-                    });
+                    spatial_entities.insert(
+                        id,
+                        SpatialInfo {
+                            id,
+                            name,
+                            entity_type: type_name.to_string(),
+                            elevation: None,
+                        },
+                    );
                 }
             }
             "IFCBUILDINGSTOREY" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
-                    let name = entity.get_string(2)
+                    let name = entity
+                        .get_string(2)
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| format!("Storey #{}", id));
                     let elevation = entity.get_float(9).map(|e| e as f32);
-                    spatial_entities.insert(id, SpatialInfo {
-                        id, name, entity_type: type_name.to_string(), elevation
-                    });
+                    spatial_entities.insert(
+                        id,
+                        SpatialInfo {
+                            id,
+                            name,
+                            entity_type: type_name.to_string(),
+                            elevation,
+                        },
+                    );
                 }
             }
             "IFCSPACE" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
-                    let name = entity.get_string(2)
+                    let name = entity
+                        .get_string(2)
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| format!("Space #{}", id));
-                    spatial_entities.insert(id, SpatialInfo {
-                        id, name, entity_type: type_name.to_string(), elevation: None
-                    });
+                    spatial_entities.insert(
+                        id,
+                        SpatialInfo {
+                            id,
+                            name,
+                            entity_type: type_name.to_string(),
+                            elevation: None,
+                        },
+                    );
                 }
             }
             // Parse IfcRelAggregates for parent-child relationships
             // Structure: (GlobalId, OwnerHistory, Name, Description, RelatingObject, RelatedObjects)
             "IFCRELAGGREGATES" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
-                    bridge::log(&format!("IfcRelAggregates #{}: {} attributes", id, entity.attributes.len()));
+                    bridge::log(&format!(
+                        "IfcRelAggregates #{}: {} attributes",
+                        id,
+                        entity.attributes.len()
+                    ));
                     let parent_id = entity.get_ref(4);
                     let children = entity.get_ref_list(5);
-                    bridge::log(&format!("  parent: {:?}, children: {:?}", parent_id, children));
+                    bridge::log(&format!(
+                        "  parent: {:?}, children: {:?}",
+                        parent_id, children
+                    ));
                     if let (Some(parent_id), Some(children)) = (parent_id, children) {
                         aggregates.entry(parent_id).or_default().extend(children);
                     }
@@ -616,7 +660,10 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     if let Some(structure_id) = entity.get_ref(5) {
                         if let Some(elements) = entity.get_ref_list(4) {
-                            contained_in.entry(structure_id).or_default().extend(elements.clone());
+                            contained_in
+                                .entry(structure_id)
+                                .or_default()
+                                .extend(elements.clone());
                             // Also track element -> storey for flat view
                             for elem_id in elements {
                                 element_to_storey.insert(elem_id, structure_id);
@@ -670,7 +717,10 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
 
     // Debug: log spatial entities
     for (id, info) in &spatial_entities {
-        bridge::log(&format!("Spatial entity #{}: {} ({})", id, info.name, info.entity_type));
+        bridge::log(&format!(
+            "Spatial entity #{}: {} ({})",
+            id, info.name, info.entity_type
+        ));
     }
 
     // Debug: log aggregates
@@ -699,7 +749,10 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
             let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
             // Skip Unknown types - we can't properly process them
             if matches!(ifc_type, ifc_lite_core::IfcType::Unknown(_)) {
-                bridge::log(&format!("Skipping #{} ({}): Unknown IFC type", id, type_name));
+                bridge::log(&format!(
+                    "Skipping #{} ({}): Unknown IFC type",
+                    id, type_name
+                ));
                 continue;
             }
 
@@ -710,15 +763,16 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
                     let name = entity.get_string(2).map(|s| s.to_string());
 
                     // Look up storey information from spatial_entities
-                    let (storey_name, storey_elevation) = if let Some(&storey_id) = element_to_storey.get(&id) {
-                        if let Some(storey) = spatial_entities.get(&storey_id) {
-                            (Some(storey.name.clone()), storey.elevation)
+                    let (storey_name, storey_elevation) =
+                        if let Some(&storey_id) = element_to_storey.get(&id) {
+                            if let Some(storey) = spatial_entities.get(&storey_id) {
+                                (Some(storey.name.clone()), storey.elevation)
+                            } else {
+                                (None, None)
+                            }
                         } else {
                             (None, None)
-                        }
-                    } else {
-                        (None, None)
-                    };
+                        };
 
                     // Always add to entity_data for hierarchy panel (even if geometry fails)
                     // Use original type_name to preserve the actual IFC type
@@ -749,7 +803,10 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
 
                                 // Skip if all positions are zero (degenerate mesh)
                                 if positions.iter().all(|v| *v == 0.0) {
-                                    bridge::log(&format!("Skipping #{} ({}): degenerate geometry", id, type_name));
+                                    bridge::log(&format!(
+                                        "Skipping #{} ({}): degenerate geometry",
+                                        id, type_name
+                                    ));
                                     errors += 1;
                                     continue;
                                 }
@@ -759,9 +816,7 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
 
                                 // Identity transform (placement already applied by router)
                                 let transform = [
-                                    1.0, 0.0, 0.0, 0.0,
-                                    0.0, 1.0, 0.0, 0.0,
-                                    0.0, 0.0, 1.0, 0.0,
+                                    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
                                     0.0, 0.0, 0.0, 1.0,
                                 ];
 
@@ -803,7 +858,10 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         }
     }
 
-    bridge::log(&format!("Processed {} meshes ({} errors)", processed, errors));
+    bridge::log(&format!(
+        "Processed {} meshes ({} errors)",
+        processed, errors
+    ));
 
     state.dispatch(ViewerAction::SetProgress(Progress {
         phase: "Sending to viewer".to_string(),
@@ -815,10 +873,12 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
     bridge::save_entities(&entity_data);
 
     // Build storey info for UI (from spatial_entities that are storeys)
-    let mut storey_infos: Vec<crate::state::StoreyInfo> = spatial_entities.values()
+    let mut storey_infos: Vec<crate::state::StoreyInfo> = spatial_entities
+        .values()
         .filter(|s| s.entity_type.to_uppercase() == "IFCBUILDINGSTOREY")
         .map(|s| {
-            let entity_count = entity_data.iter()
+            let entity_count = entity_data
+                .iter()
                 .filter(|e| e.storey.as_ref() == Some(&s.name))
                 .count();
             crate::state::StoreyInfo {
@@ -829,14 +889,22 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         })
         .collect();
     // Sort by elevation (descending - top floors first)
-    storey_infos.sort_by(|a, b| b.elevation.partial_cmp(&a.elevation).unwrap_or(std::cmp::Ordering::Equal));
+    storey_infos.sort_by(|a, b| {
+        b.elevation
+            .partial_cmp(&a.elevation)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Build entity_infos for flat view with properties and quantities
     let entity_infos: Vec<crate::state::EntityInfo> = entity_data
         .iter()
         .map(|e| {
-            let (property_sets, quantities) =
-                extract_properties_and_quantities(e.id as u32, &element_properties, &element_to_type, &mut decoder);
+            let (property_sets, quantities) = extract_properties_and_quantities(
+                e.id as u32,
+                &element_properties,
+                &element_to_type,
+                &mut decoder,
+            );
             crate::state::EntityInfo {
                 id: e.id,
                 entity_type: e.entity_type.clone(),
@@ -851,9 +919,8 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         .collect();
 
     // Track which entities have geometry
-    let entities_with_geometry: std::collections::HashSet<u64> = geometry_data.iter()
-        .map(|g| g.entity_id)
-        .collect();
+    let entities_with_geometry: std::collections::HashSet<u64> =
+        geometry_data.iter().map(|g| g.entity_id).collect();
 
     // Build spatial tree
     // Helper to get node type from entity type
@@ -887,8 +954,13 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         if let Some(child_ids) = aggregates.get(&id) {
             for &child_id in child_ids {
                 if let Some(child_node) = build_node(
-                    child_id, spatial_entities, aggregates, contained_in,
-                    entity_data, entities_with_geometry, get_node_type
+                    child_id,
+                    spatial_entities,
+                    aggregates,
+                    contained_in,
+                    entity_data,
+                    entities_with_geometry,
+                    get_node_type,
                 ) {
                     children.push(child_node);
                 }
@@ -923,8 +995,13 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
                 return b_is_spatial.cmp(&a_is_spatial);
             }
             // For storeys, sort by elevation (descending)
-            if matches!(a.node_type, SpatialNodeType::Storey) && matches!(b.node_type, SpatialNodeType::Storey) {
-                return b.elevation.partial_cmp(&a.elevation).unwrap_or(std::cmp::Ordering::Equal);
+            if matches!(a.node_type, SpatialNodeType::Storey)
+                && matches!(b.node_type, SpatialNodeType::Storey)
+            {
+                return b
+                    .elevation
+                    .partial_cmp(&a.elevation)
+                    .unwrap_or(std::cmp::Ordering::Equal);
             }
             // Otherwise sort by type then name
             match a.entity_type.cmp(&b.entity_type) {
@@ -945,14 +1022,20 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
     }
 
     // Find the root (usually IfcProject)
-    let root_id = spatial_entities.iter()
+    let root_id = spatial_entities
+        .iter()
         .find(|(_, info)| info.entity_type.to_uppercase() == "IFCPROJECT")
         .map(|(id, _)| *id);
 
     if let Some(root_id) = root_id {
         if let Some(tree) = build_node(
-            root_id, &spatial_entities, &aggregates, &contained_in,
-            &entity_data, &entities_with_geometry, &get_node_type
+            root_id,
+            &spatial_entities,
+            &aggregates,
+            &contained_in,
+            &entity_data,
+            &entities_with_geometry,
+            &get_node_type,
         ) {
             state.dispatch(ViewerAction::SetSpatialTree(tree));
         }
@@ -961,7 +1044,10 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
     state.dispatch(ViewerAction::SetEntities(entity_infos));
     state.dispatch(ViewerAction::SetStoreys(storey_infos));
 
-    bridge::log(&format!("Geometry sent to Bevy viewer: {} entities", geometry_data.len()));
+    bridge::log(&format!(
+        "Geometry sent to Bevy viewer: {} entities",
+        geometry_data.len()
+    ));
 
     Ok(())
 }
@@ -1005,7 +1091,9 @@ fn get_element_color(ifc_type: &ifc_lite_core::IfcType) -> [f32; 4] {
         // Building element proxy - neutral gray
         IfcType::IfcBuildingElementProxy => [0.7, 0.7, 0.7, 1.0],
         // Reinforcing - dark steel
-        IfcType::IfcReinforcingBar | IfcType::IfcReinforcingMesh | IfcType::IfcTendon => [0.4, 0.4, 0.45, 1.0],
+        IfcType::IfcReinforcingBar | IfcType::IfcReinforcingMesh | IfcType::IfcTendon => {
+            [0.4, 0.4, 0.45, 1.0]
+        }
         // Default - neutral warm gray
         _ => [0.8, 0.78, 0.75, 1.0],
     }

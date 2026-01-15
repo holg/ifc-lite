@@ -242,7 +242,12 @@ impl DecodedEntity {
     }
 
     /// Create new decoded entity with explicit type name
-    pub fn with_type_name(id: u32, ifc_type: IfcType, type_name: String, attributes: Vec<AttributeValue>) -> Self {
+    pub fn with_type_name(
+        id: u32,
+        ifc_type: IfcType,
+        type_name: String,
+        attributes: Vec<AttributeValue>,
+    ) -> Self {
         Self {
             id,
             ifc_type,
@@ -278,11 +283,8 @@ impl DecodedEntity {
 
     /// Get list of entity references from an attribute
     pub fn get_ref_list(&self, index: usize) -> Option<Vec<u32>> {
-        self.get_list(index).map(|list| {
-            list.iter()
-                .filter_map(|v| v.as_entity_ref())
-                .collect()
-        })
+        self.get_list(index)
+            .map(|list| list.iter().filter_map(|v| v.as_entity_ref()).collect())
     }
 }
 

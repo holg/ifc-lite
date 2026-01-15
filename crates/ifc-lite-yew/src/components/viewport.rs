@@ -1,9 +1,9 @@
 //! Viewport component - embeds Bevy canvas
 
-use yew::prelude::*;
-use wasm_bindgen_futures::spawn_local;
+use crate::bridge::{is_bevy_loaded, load_bevy_viewer, log, log_error};
 use crate::state::ViewerStateContext;
-use crate::bridge::{load_bevy_viewer, is_bevy_loaded, log, log_error};
+use wasm_bindgen_futures::spawn_local;
+use yew::prelude::*;
 
 /// Bevy loading state
 #[derive(Clone, Copy, PartialEq)]

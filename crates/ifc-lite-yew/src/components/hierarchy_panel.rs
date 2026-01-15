@@ -5,7 +5,6 @@ use crate::components::toolbar::parse_and_process_ifc;
 use crate::state::{Progress, SpatialNode, SpatialNodeType, ViewerAction, ViewerStateContext};
 use gloo_file::callbacks::FileReader;
 use std::collections::HashSet;
-use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{DragEvent, Element, HtmlInputElement};
 use yew::prelude::*;
@@ -358,7 +357,13 @@ pub fn HierarchyPanel() -> Html {
     // Flatten tree and compute visible range
     let (rows, total_height, visible_rows) = if let Some(ref tree) = state.spatial_tree {
         let mut rows = Vec::new();
-        flatten_tree(tree, 0, &state.expanded_nodes, &state.search_query, &mut rows);
+        flatten_tree(
+            tree,
+            0,
+            &state.expanded_nodes,
+            &state.search_query,
+            &mut rows,
+        );
 
         let total_height = rows.len() as f64 * ROW_HEIGHT;
         let start_idx = ((*scroll_top / ROW_HEIGHT) as usize).saturating_sub(OVERSCAN);

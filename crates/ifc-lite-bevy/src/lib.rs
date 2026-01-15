@@ -37,6 +37,7 @@ fn init_debug_from_url() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 fn init_debug_from_url() {
     // Native: check env var
     if std::env::var("DEBUG").is_ok() {
@@ -59,12 +60,7 @@ impl Plugin for IfcViewerPlugin {
         app.init_resource::<IfcSceneData>()
             .init_resource::<ViewerSettings>()
             .init_resource::<IfcTimestamp>()
-            .add_plugins((
-                CameraPlugin,
-                MeshPlugin,
-                PickingPlugin,
-                SectionPlanePlugin,
-            ))
+            .add_plugins((CameraPlugin, MeshPlugin, PickingPlugin, SectionPlanePlugin))
             .add_systems(Update, poll_scene_changes);
     }
 }
@@ -174,7 +170,7 @@ impl Theme {
 pub struct IfcTimestamp(pub String);
 
 /// System to poll localStorage for scene changes (WASM)
-#[allow(unused_variables)]
+#[allow(unused_variables, unused_mut)]
 pub fn poll_scene_changes(
     mut scene_data: ResMut<IfcSceneData>,
     mut settings: ResMut<ViewerSettings>,
@@ -213,7 +209,8 @@ pub fn poll_scene_changes(
                 // Load visibility state
                 if let Some(visibility) = storage::load_visibility() {
                     settings.hidden_entities = visibility.hidden.into_iter().collect();
-                    settings.isolated_entities = visibility.isolated.map(|v| v.into_iter().collect());
+                    settings.isolated_entities =
+                        visibility.isolated.map(|v| v.into_iter().collect());
                 }
 
                 last_timestamp.0 = new_timestamp;

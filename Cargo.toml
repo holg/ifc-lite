@@ -1,11 +1,11 @@
 [workspace]
 members = [
+    "crates/ifc-lite-bevy",
+    "crates/ifc-lite-viewer",
+    "crates/ifc-lite-yew",
     "rust/core",
     "rust/geometry",
     "rust/wasm-bindings",
-    "crates/ifc-lite-bevy",
-    "crates/ifc-lite-yew",
-    "crates/ifc-lite-viewer",
 ]
 resolver = "2"
 

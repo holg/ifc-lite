@@ -2,11 +2,11 @@
 //!
 //! Handles loading IFC geometry into Bevy meshes with materials.
 
-use bevy::prelude::*;
-use bevy::mesh::{Indices, PrimitiveTopology};
+use crate::{log, IfcSceneData, SceneBounds, ViewerSettings};
 use bevy::asset::RenderAssetUsages;
+use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::{IfcSceneData, SceneBounds, ViewerSettings, log};
 
 /// Mesh plugin
 pub struct MeshPlugin;
@@ -15,13 +15,17 @@ impl Plugin for MeshPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AutoFitState>()
             .init_resource::<PendingFocus>()
-            .add_systems(Update, (
-                spawn_meshes_system,
-                auto_fit_camera_system,
-                update_mesh_visibility_system,
-                update_mesh_selection_system,
-                poll_focus_command_system,
-            ).chain());
+            .add_systems(
+                Update,
+                (
+                    spawn_meshes_system,
+                    auto_fit_camera_system,
+                    update_mesh_visibility_system,
+                    update_mesh_selection_system,
+                    poll_focus_command_system,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -159,7 +163,10 @@ fn spawn_meshes_system(
         return;
     }
 
-    log(&format!("[Bevy] Spawning {} meshes", scene_data.meshes.len()));
+    log(&format!(
+        "[Bevy] Spawning {} meshes",
+        scene_data.meshes.len()
+    ));
 
     // Despawn existing entities
     for entity in existing_entities.iter() {
@@ -239,7 +246,10 @@ fn auto_fit_camera_system(
     }
 
     if let Some(ref bounds) = scene_data.bounds {
-        log(&format!("[Bevy] Auto-fitting camera to bounds: {:?} to {:?}", bounds.min, bounds.max));
+        log(&format!(
+            "[Bevy] Auto-fitting camera to bounds: {:?} to {:?}",
+            bounds.min, bounds.max
+        ));
 
         // Calculate scene center and size
         let center = bounds.center();
@@ -252,10 +262,13 @@ fn auto_fit_camera_system(
         // Update camera controller directly (no animation for initial fit)
         camera_controller.target = center;
         camera_controller.distance = distance.max(100.0); // Minimum distance of 100mm
-        camera_controller.azimuth = 0.785;  // 45 degrees
+        camera_controller.azimuth = 0.785; // 45 degrees
         camera_controller.elevation = 0.615; // ~35 degrees (isometric)
 
-        log(&format!("[Bevy] Camera set to: target={:?}, distance={}", center, distance));
+        log(&format!(
+            "[Bevy] Camera set to: target={:?}, distance={}",
+            center, distance
+        ));
 
         auto_fit.has_fit = true;
     }
@@ -272,7 +285,9 @@ fn update_mesh_visibility_system(
 
     for (ifc_entity, mut visibility) in query.iter_mut() {
         let should_hide = settings.hidden_entities.contains(&ifc_entity.id);
-        let should_isolate = settings.isolated_entities.as_ref()
+        let should_isolate = settings
+            .isolated_entities
+            .as_ref()
             .map(|isolated| !isolated.contains(&ifc_entity.id))
             .unwrap_or(false);
 
@@ -314,6 +329,7 @@ fn update_mesh_selection_system(
 }
 
 /// System to poll for focus commands from Yew (zoom to entity)
+#[allow(unused_variables, unused_mut)]
 fn poll_focus_command_system(
     mut camera_controller: ResMut<crate::camera::CameraController>,
     entities: Query<(&IfcEntity, &EntityBounds)>,
@@ -324,7 +340,10 @@ fn poll_focus_command_system(
             // Clear the command so we don't process it again
             crate::storage::clear_focus();
 
-            log(&format!("[Bevy] Focus command received for entity #{}", focus.entity_id));
+            log(&format!(
+                "[Bevy] Focus command received for entity #{}",
+                focus.entity_id
+            ));
 
             // Find the entity with matching ID
             for (ifc_entity, bounds) in entities.iter() {

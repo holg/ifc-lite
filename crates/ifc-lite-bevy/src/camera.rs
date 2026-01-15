@@ -2,12 +2,12 @@
 //!
 //! Provides a flexible camera controller similar to the TypeScript version.
 
-use bevy::input::mouse::{MouseMotion, MouseWheel};
-use bevy::prelude::*;
-use bevy::ecs::message::MessageReader;
-use crate::storage::CameraStorage;
 #[cfg(target_arch = "wasm32")]
 use crate::storage::save_camera;
+use crate::storage::CameraStorage;
+use bevy::ecs::message::MessageReader;
+use bevy::input::mouse::{MouseMotion, MouseWheel};
+use bevy::prelude::*;
 
 /// Camera controller plugin
 pub struct CameraPlugin;
@@ -16,12 +16,16 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraController>()
             .add_systems(Startup, setup_camera)
-            .add_systems(Update, (
-                poll_camera_commands_system,
-                camera_input_system,
-                camera_update_system,
-                camera_keyboard_system,
-            ).chain());
+            .add_systems(
+                Update,
+                (
+                    poll_camera_commands_system,
+                    camera_input_system,
+                    camera_update_system,
+                    camera_keyboard_system,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -83,7 +87,7 @@ impl Default for CameraController {
             mode: CameraMode::Orbit,
             target: Vec3::ZERO,
             distance: 100.0,  // Start further back for IFC models (in mm)
-            azimuth: 0.785,  // 45 degrees
+            azimuth: 0.785,   // 45 degrees
             elevation: 0.615, // ~35 degrees (isometric)
             damping: 0.92,
             velocity: Vec3::ZERO,
@@ -91,9 +95,9 @@ impl Default for CameraController {
             is_animating: false,
             animation_target: None,
             fov: 45.0,
-            near: 1.0,      // 1mm near plane for IFC-scale models
-            far: 1000000.0, // 1km far plane for large IFC models
-            walk_speed: 500.0,  // 0.5m per frame for walking in mm-scale
+            near: 1.0,         // 1mm near plane for IFC-scale models
+            far: 1000000.0,    // 1km far plane for large IFC models
+            walk_speed: 500.0, // 0.5m per frame for walking in mm-scale
             orbit_sensitivity: 0.005,
             pan_sensitivity: 0.01,
             zoom_sensitivity: 0.1,
@@ -201,6 +205,7 @@ pub struct CameraAnimationTarget {
 pub struct MainCamera;
 
 /// System to poll for camera commands from Yew UI
+#[allow(unused_variables, unused_mut)]
 fn poll_camera_commands_system(
     mut controller: ResMut<CameraController>,
     scene_data: Res<crate::IfcSceneData>,
@@ -261,7 +266,7 @@ fn setup_camera(mut commands: Commands, controller: Res<CameraController>) {
     commands.spawn((
         DirectionalLight {
             color: Color::srgb(1.0, 0.99, 0.97), // Slightly warm
-            illuminance: 25000.0, // Strong key light
+            illuminance: 25000.0,                // Strong key light
             shadows_enabled: false,
             affects_lightmapped_mesh_diffuse: true,
             ..default()
@@ -273,7 +278,7 @@ fn setup_camera(mut commands: Commands, controller: Res<CameraController>) {
     commands.spawn((
         DirectionalLight {
             color: Color::srgb(0.85, 0.9, 1.0), // Cool fill
-            illuminance: 8000.0, // Moderate fill
+            illuminance: 8000.0,                // Moderate fill
             shadows_enabled: false,
             affects_lightmapped_mesh_diffuse: true,
             ..default()
@@ -331,8 +336,12 @@ fn camera_input_system(
                     // Calculate pan in camera space
                     let right = Vec3::new(controller.azimuth.cos(), 0.0, -controller.azimuth.sin());
                     let up = Vec3::Y;
-                    let pan = right * ev.delta.x * controller.pan_sensitivity * controller.distance * 0.01
-                            - up * ev.delta.y * controller.pan_sensitivity * controller.distance * 0.01;
+                    let pan = right
+                        * ev.delta.x
+                        * controller.pan_sensitivity
+                        * controller.distance
+                        * 0.01
+                        - up * ev.delta.y * controller.pan_sensitivity * controller.distance * 0.01;
                     controller.target += pan;
                 }
                 CameraMode::Walk => {
@@ -375,7 +384,8 @@ fn camera_keyboard_system(
             -controller.azimuth.sin() * controller.elevation.cos(),
             controller.elevation.sin(),
             -controller.azimuth.cos() * controller.elevation.cos(),
-        ).normalize();
+        )
+        .normalize();
         let right = Vec3::new(controller.azimuth.cos(), 0.0, -controller.azimuth.sin());
 
         let mut movement = Vec3::ZERO;
@@ -447,10 +457,18 @@ fn camera_update_system(
             // Ease out cubic
             let t = 1.0 - (1.0 - t).powi(3);
             let completed = target.elapsed >= target.duration;
-            (target.azimuth, target.elevation, target.distance, target.target, t, completed)
+            (
+                target.azimuth,
+                target.elevation,
+                target.distance,
+                target.target,
+                t,
+                completed,
+            )
         };
 
-        let (target_azimuth, target_elevation, target_distance, target_pos, t, completed) = animation_data;
+        let (target_azimuth, target_elevation, target_distance, target_pos, t, completed) =
+            animation_data;
 
         controller.azimuth = lerp(controller.azimuth, target_azimuth, t);
         controller.elevation = lerp(controller.elevation, target_elevation, t);
@@ -468,7 +486,9 @@ fn camera_update_system(
         let position = controller.get_position();
 
         // Apply damping for smooth movement
-        transform.translation = transform.translation.lerp(position, 1.0 - controller.damping.powi(2));
+        transform.translation = transform
+            .translation
+            .lerp(position, 1.0 - controller.damping.powi(2));
         transform.look_at(controller.target, Vec3::Y);
     }
 

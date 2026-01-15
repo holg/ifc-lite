@@ -2,12 +2,12 @@
 //!
 //! Three-panel layout: hierarchy (left), viewport (center), properties (right)
 
-use yew::prelude::*;
-use wasm_bindgen_futures::spawn_local;
-use crate::state::{ViewerAction, ViewerStateContext, Progress, use_viewer_state};
+use super::{parse_and_process_ifc, HierarchyPanel, PropertiesPanel, StatusBar, Toolbar, Viewport};
 use crate::bridge::{self, VisibilityData};
-use crate::utils::{get_file_param, build_ifc_url, fetch_ifc_file};
-use super::{HierarchyPanel, PropertiesPanel, StatusBar, Toolbar, Viewport, parse_and_process_ifc};
+use crate::state::{use_viewer_state, Progress, ViewerAction, ViewerStateContext};
+use crate::utils::{build_ifc_url, fetch_ifc_file, get_file_param};
+use wasm_bindgen_futures::spawn_local;
+use yew::prelude::*;
 
 /// Component that loads IFC file from URL parameter on mount
 #[function_component]
@@ -54,14 +54,20 @@ fn UrlLoader() -> Html {
                                     state.dispatch(ViewerAction::ClearProgress);
                                 }
                                 Err(e) => {
-                                    bridge::log_error(&format!("[Yew] Failed to process IFC: {}", e));
+                                    bridge::log_error(&format!(
+                                        "[Yew] Failed to process IFC: {}",
+                                        e
+                                    ));
                                     state.dispatch(ViewerAction::SetError(e));
                                 }
                             }
                         }
                         Err(e) => {
                             bridge::log_error(&format!("[Yew] Failed to fetch IFC: {}", e));
-                            state.dispatch(ViewerAction::SetError(format!("Failed to load file: {}", e)));
+                            state.dispatch(ViewerAction::SetError(format!(
+                                "Failed to load file: {}",
+                                e
+                            )));
                         }
                     }
                 });
@@ -107,17 +113,14 @@ fn StateBridge() -> Html {
         let selected_ids = state.selected_ids.clone();
         let hovered_id = state.hovered_id;
 
-        use_effect_with(
-            (selected_ids.len(), hovered_id),
-            move |_| {
-                let selection = bridge::SelectionData {
-                    selected_ids: selected_ids.iter().copied().collect(),
-                    hovered_id,
-                };
-                bridge::save_selection(&selection);
-                || ()
-            },
-        );
+        use_effect_with((selected_ids.len(), hovered_id), move |_| {
+            let selection = bridge::SelectionData {
+                selected_ids: selected_ids.iter().copied().collect(),
+                hovered_id,
+            };
+            bridge::save_selection(&selection);
+            || ()
+        });
     }
 
     html! {}

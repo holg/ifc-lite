@@ -8,6 +8,7 @@ use crate::{EntityInfo, IfcMesh};
 use serde::{Deserialize, Serialize};
 
 /// Binary format header magic number
+#[allow(dead_code)]
 const BINARY_MAGIC: u32 = 0x49464342; // "IFCB" in ASCII
 
 /// Storage keys for localStorage
@@ -47,7 +48,7 @@ pub struct CameraStorage {
 impl Default for CameraStorage {
     fn default() -> Self {
         Self {
-            azimuth: 0.785, // 45 degrees
+            azimuth: 0.785,   // 45 degrees
             elevation: 0.615, // ~35 degrees (isometric)
             distance: 10.0,
             target: [0.0, 0.0, 0.0],
@@ -59,7 +60,7 @@ impl Default for CameraStorage {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SectionStorage {
     pub enabled: bool,
-    pub axis: String, // "x", "y", or "z"
+    pub axis: String,  // "x", "y", or "z"
     pub position: f32, // 0.0 to 1.0
     pub flipped: bool,
 }
@@ -105,7 +106,11 @@ mod wasm_storage {
 
     pub fn get_timestamp() -> Option<String> {
         let ts = get_ifc_timestamp();
-        if ts.is_empty() { None } else { Some(ts) }
+        if ts.is_empty() {
+            None
+        } else {
+            Some(ts)
+        }
     }
 
     /// Deserialize geometry from binary format

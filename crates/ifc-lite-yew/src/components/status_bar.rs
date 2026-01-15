@@ -1,7 +1,7 @@
 //! Status bar component
 
-use yew::prelude::*;
 use crate::state::ViewerStateContext;
+use yew::prelude::*;
 
 /// Status bar component
 #[function_component]
@@ -9,7 +9,9 @@ pub fn StatusBar() -> Html {
     let state = use_context::<ViewerStateContext>().expect("ViewerStateContext not found");
 
     // Calculate visible entity count
-    let visible_count = state.entities.iter()
+    let visible_count = state
+        .entities
+        .iter()
         .filter(|e| {
             // Not hidden
             if state.hidden_ids.contains(&e.id) {

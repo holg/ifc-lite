@@ -90,4 +90,9 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Location", "Storage", "console"] }
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Location",
+    "Storage",
+    "console",
+] }

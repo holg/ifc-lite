@@ -160,17 +160,17 @@ const BINARY_MAGIC: u32 = 0x49464342; // "IFCB" in ASCII
 /// - For each mesh:
 ///   - u64: entity_id
 ///   - u32: positions_len (number of f32s)
-///   - f32[]: positions
+///   - `f32[]`: positions
 ///   - u32: normals_len
-///   - f32[]: normals
+///   - `f32[]`: normals
 ///   - u32: indices_len
-///   - u32[]: indices
-///   - f32[4]: color
-///   - f32[16]: transform
+///   - `u32[]`: indices
+///   - `f32[4]`: color
+///   - `f32[16]`: transform
 ///   - u8: entity_type_len
-///   - utf8[]: entity_type
+///   - `utf8[]`: entity_type
 ///   - u8: name_len (0 if None)
-///   - utf8[]: name (if any)
+///   - `utf8[]`: name (if any)
 fn serialize_geometry_binary(geometry: &[GeometryData]) -> Vec<u8> {
     // Estimate capacity: header + meshes
     let estimated_size: usize = 12
