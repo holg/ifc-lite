@@ -517,6 +517,8 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
     let mut element_properties: HashMap<u32, Vec<u32>> = HashMap::new();
     // IfcRelDefinesByType: element -> type ID
     let mut element_to_type: HashMap<u32, u32> = HashMap::new();
+    // Track project ID for unit extraction
+    let mut project_id: Option<u32> = None;
 
     // Use simple line-by-line parsing for reliability (scanner has issues with large files)
     // Scan for spatial structure entities and relationships
@@ -549,6 +551,7 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         // Parse spatial structure entities
         match type_upper.as_str() {
             "IFCPROJECT" => {
+                project_id = Some(id);
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     let name = entity
                         .get_string(2)
@@ -714,6 +717,33 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         element_properties.len(),
         element_to_type.len()
     ));
+
+    // Extract unit scale from project (default to 1.0 if not found)
+    let unit_scale = if let Some(proj_id) = project_id {
+        match ifc_lite_core::extract_length_unit_scale(&mut decoder, proj_id) {
+            Ok(scale) => {
+                bridge::log(&format!(
+                    "Unit scale: {} (from project #{})",
+                    scale, proj_id
+                ));
+                scale as f32
+            }
+            Err(e) => {
+                bridge::log(&format!("Failed to extract unit scale: {:?}, using 1.0", e));
+                1.0
+            }
+        }
+    } else {
+        bridge::log("No IFCPROJECT found, using unit scale 1.0");
+        1.0
+    };
+
+    // Apply unit scale to elevations in spatial entities
+    for info in spatial_entities.values_mut() {
+        if let Some(ref mut elev) = info.elevation {
+            *elev *= unit_scale;
+        }
+    }
 
     // Debug: log spatial entities
     for (id, info) in &spatial_entities {
