@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/ifc-lite-bevy",
+    "crates/ifc-lite-ffi",
     "crates/ifc-lite-viewer",
     "crates/ifc-lite-yew",
     "rust/core",

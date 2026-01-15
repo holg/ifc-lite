@@ -1,0 +1,422 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1000001229A0001 /* IfcLiteViewerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000011229A0001 /* IfcLiteViewerApp.swift */; };
+		A1000002229A0002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000012229A0002 /* ContentView.swift */; };
+		A1000003229A0003 /* ViewportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000013229A0003 /* ViewportView.swift */; };
+		A1000004229A0004 /* BevyMetalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000014229A0004 /* BevyMetalView.swift */; };
+		A100000B229A000B /* SceneKitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100001D229A000D /* SceneKitView.swift */; };
+		A1000005229A0005 /* ViewerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000015229A0005 /* ViewerViewModel.swift */; };
+		A1000006229A0006 /* HierarchyPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000016229A0006 /* HierarchyPanel.swift */; };
+		A1000007229A0007 /* PropertiesPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000017229A0007 /* PropertiesPanel.swift */; };
+		A1000008229A0008 /* ToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000018229A0008 /* ToolbarView.swift */; };
+		A1000009229A0009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000019229A0009 /* Assets.xcassets */; };
+		A100000A229A000A /* IfcLite in Frameworks */ = {isa = PBXBuildFile; productRef = A100002A229A000A /* IfcLite */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A1000011229A0001 /* IfcLiteViewerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IfcLiteViewerApp.swift; sourceTree = "<group>"; };
+		A1000012229A0002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A1000013229A0003 /* ViewportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewportView.swift; sourceTree = "<group>"; };
+		A1000014229A0004 /* BevyMetalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BevyMetalView.swift; sourceTree = "<group>"; };
+		A100001D229A000D /* SceneKitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneKitView.swift; sourceTree = "<group>"; };
+		A1000015229A0005 /* ViewerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerViewModel.swift; sourceTree = "<group>"; };
+		A1000016229A0006 /* HierarchyPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HierarchyPanel.swift; sourceTree = "<group>"; };
+		A1000017229A0007 /* PropertiesPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertiesPanel.swift; sourceTree = "<group>"; };
+		A1000018229A0008 /* ToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolbarView.swift; sourceTree = "<group>"; };
+		A1000019229A0009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A100001A229A000A /* IfcLiteViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = IfcLiteViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A100001B229A000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A100001C229A000C /* IfcLiteViewer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = IfcLiteViewer.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A1000020229A0020 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A100000A229A000A /* IfcLite in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A1000030229A0030 /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				A1000031229A0031 /* IfcLiteViewer */,
+				A1000032229A0032 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A1000031229A0031 /* IfcLiteViewer */ = {
+			isa = PBXGroup;
+			children = (
+				A1000011229A0001 /* IfcLiteViewerApp.swift */,
+				A1000033229A0033 /* Views */,
+				A1000034229A0034 /* ViewModels */,
+				A1000035229A0035 /* Components */,
+				A1000019229A0009 /* Assets.xcassets */,
+				A100001B229A000B /* Info.plist */,
+				A100001C229A000C /* IfcLiteViewer.entitlements */,
+			);
+			path = IfcLiteViewer;
+			sourceTree = "<group>";
+		};
+		A1000032229A0032 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A100001A229A000A /* IfcLiteViewer.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A1000033229A0033 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A1000012229A0002 /* ContentView.swift */,
+				A1000013229A0003 /* ViewportView.swift */,
+				A1000014229A0004 /* BevyMetalView.swift */,
+				A100001D229A000D /* SceneKitView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A1000034229A0034 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				A1000015229A0005 /* ViewerViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		A1000035229A0035 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				A1000016229A0006 /* HierarchyPanel.swift */,
+				A1000017229A0007 /* PropertiesPanel.swift */,
+				A1000018229A0008 /* ToolbarView.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A1000040229A0040 /* IfcLiteViewer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000050229A0050 /* Build configuration list for PBXNativeTarget "IfcLiteViewer" */;
+			buildPhases = (
+				A1000021229A0021 /* Sources */,
+				A1000020229A0020 /* Frameworks */,
+				A1000022229A0022 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = IfcLiteViewer;
+			packageProductDependencies = (
+				A100002A229A000A /* IfcLite */,
+			);
+			productName = IfcLiteViewer;
+			productReference = A100001A229A000A /* IfcLiteViewer.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A1000060229A0060 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					A1000040229A0040 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = A1000061229A0061 /* Build configuration list for PBXProject "IfcLiteViewer" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A1000030229A0030 /* Root */;
+			packageReferences = (
+				A1000029229A0029 /* XCLocalSwiftPackageReference "../../ifc-lite-ffi/output/IfcLite" */,
+			);
+			productRefGroup = A1000032229A0032 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A1000040229A0040 /* IfcLiteViewer */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A1000022229A0022 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000009229A0009 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A1000021229A0021 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001229A0001 /* IfcLiteViewerApp.swift in Sources */,
+				A1000002229A0002 /* ContentView.swift in Sources */,
+				A1000003229A0003 /* ViewportView.swift in Sources */,
+				A1000004229A0004 /* BevyMetalView.swift in Sources */,
+				A100000B229A000B /* SceneKitView.swift in Sources */,
+				A1000005229A0005 /* ViewerViewModel.swift in Sources */,
+				A1000006229A0006 /* HierarchyPanel.swift in Sources */,
+				A1000007229A0007 /* PropertiesPanel.swift in Sources */,
+				A1000008229A0008 /* ToolbarView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A1000070229A0070 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A1000071229A0071 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		A1000072229A0072 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = IfcLiteViewer/IfcLiteViewer.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = IfcLiteViewer/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "IFC-Lite Viewer";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.graphics-design";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024 IFC-Lite. All rights reserved.";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ifc-lite.viewer";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1000073229A0073 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = IfcLiteViewer/IfcLiteViewer.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = IfcLiteViewer/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "IFC-Lite Viewer";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.graphics-design";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024 IFC-Lite. All rights reserved.";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ifc-lite.viewer";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A1000050229A0050 /* Build configuration list for PBXNativeTarget "IfcLiteViewer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000072229A0072 /* Debug */,
+				A1000073229A0073 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000061229A0061 /* Build configuration list for PBXProject "IfcLiteViewer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000070229A0070 /* Debug */,
+				A1000071229A0071 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A1000029229A0029 /* XCLocalSwiftPackageReference "../../ifc-lite-ffi/output/IfcLite" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../ifc-lite-ffi/output/IfcLite";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A100002A229A000A /* IfcLite */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = IfcLite;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A1000060229A0060 /* Project object */;
+}

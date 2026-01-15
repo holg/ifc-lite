@@ -1,0 +1,4 @@
+module ifc_lite_ffiFFI {
+    header "ifc_lite_ffiFFI.h"
+    export *
+}

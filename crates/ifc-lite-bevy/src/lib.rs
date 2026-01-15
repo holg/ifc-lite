@@ -9,6 +9,12 @@ pub mod picking;
 pub mod section;
 pub mod storage;
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub mod native_view;
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub mod ffi;
+
 use bevy::prelude::*;
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
@@ -51,6 +57,9 @@ pub use mesh::{AutoFitState, IfcEntity, IfcMesh, MeshPlugin};
 pub use picking::{PickingPlugin, SelectionState};
 pub use section::{SectionPlane, SectionPlanePlugin};
 pub use storage::*;
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub use native_view::{AppView, AppViewPlugin, AppViews};
 
 /// Main IFC viewer plugin - combines all subsystems
 pub struct IfcViewerPlugin;
