@@ -145,7 +145,7 @@ renderer.render();
 | Resource | Description |
 |----------|-------------|
 | [**User Guide**](https://louistrue.github.io/ifc-lite/) | Complete guide with tutorials and examples |
-| [**API Reference**](https://louistrue.github.io/ifc-lite/api/) | Rustdoc API documentation |
+| [**Rust API (docs.rs)**](https://docs.rs/ifc-lite-core/latest/ifc_lite_core/) | Rust/WASM core API documentation |
 | [**Architecture**](docs/architecture.md) | System design and data flow |
 | [**Release Process**](RELEASE.md) | Automated versioning and publishing workflow |
 
