@@ -696,110 +696,109 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
     while let Some((id, type_name, _start, _end)) = scanner.next_entity() {
         // Check if this is an element with potential geometry (using comprehensive check)
         if ifc_lite_core::has_geometry_by_name(type_name) {
-            if let Some(ifc_type) = ifc_lite_core::IfcType::from_str(type_name) {
-                // Skip Unknown types - we can't properly process them
-                if matches!(ifc_type, ifc_lite_core::IfcType::Unknown(_)) {
-                    bridge::log(&format!("Skipping #{} ({}): Unknown IFC type", id, type_name));
-                    continue;
-                }
+            let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
+            // Skip Unknown types - we can't properly process them
+            if matches!(ifc_type, ifc_lite_core::IfcType::Unknown(_)) {
+                bridge::log(&format!("Skipping #{} ({}): Unknown IFC type", id, type_name));
+                continue;
+            }
 
-                // Decode the entity
-                match decoder.decode_by_id(id) {
-                    Ok(entity) => {
-                        // Get entity name (attribute 2 for most building elements)
-                        let name = entity.get_string(2).map(|s| s.to_string());
+            // Decode the entity
+            match decoder.decode_by_id(id) {
+                Ok(entity) => {
+                    // Get entity name (attribute 2 for most building elements)
+                    let name = entity.get_string(2).map(|s| s.to_string());
 
-                        // Look up storey information from spatial_entities
-                        let (storey_name, storey_elevation) = if let Some(&storey_id) = element_to_storey.get(&id) {
-                            if let Some(storey) = spatial_entities.get(&storey_id) {
-                                (Some(storey.name.clone()), storey.elevation)
-                            } else {
-                                (None, None)
-                            }
+                    // Look up storey information from spatial_entities
+                    let (storey_name, storey_elevation) = if let Some(&storey_id) = element_to_storey.get(&id) {
+                        if let Some(storey) = spatial_entities.get(&storey_id) {
+                            (Some(storey.name.clone()), storey.elevation)
                         } else {
                             (None, None)
-                        };
+                        }
+                    } else {
+                        (None, None)
+                    };
 
-                        // Always add to entity_data for hierarchy panel (even if geometry fails)
-                        // Use original type_name to preserve the actual IFC type
-                        entity_data.push(EntityData {
-                            id: id as u64,
-                            entity_type: type_name.to_string(),
-                            name: name.clone(),
-                            storey: storey_name,
-                            storey_elevation,
-                        });
+                    // Always add to entity_data for hierarchy panel (even if geometry fails)
+                    // Use original type_name to preserve the actual IFC type
+                    entity_data.push(EntityData {
+                        id: id as u64,
+                        entity_type: type_name.to_string(),
+                        name: name.clone(),
+                        storey: storey_name,
+                        storey_elevation,
+                    });
 
-                        // Process geometry
-                        match router.process_element(&entity, &mut decoder) {
-                            Ok(mesh) => {
-                                if !mesh.is_empty() {
-                                    // Convert mesh to bridge format
-                                    // Mesh has positions/normals as flat f32 arrays, indices as u32
-                                    // Sanitize values: replace NaN/Infinity with 0.0
-                                    let sanitize = |arr: &[f32]| -> Vec<f32> {
-                                        arr.iter()
-                                            .map(|v| if v.is_finite() { *v } else { 0.0 })
-                                            .collect()
-                                    };
+                    // Process geometry
+                    match router.process_element(&entity, &mut decoder) {
+                        Ok(mesh) => {
+                            if !mesh.is_empty() {
+                                // Convert mesh to bridge format
+                                // Mesh has positions/normals as flat f32 arrays, indices as u32
+                                // Sanitize values: replace NaN/Infinity with 0.0
+                                let sanitize = |arr: &[f32]| -> Vec<f32> {
+                                    arr.iter()
+                                        .map(|v| if v.is_finite() { *v } else { 0.0 })
+                                        .collect()
+                                };
 
-                                    let positions = sanitize(&mesh.positions);
-                                    let normals = sanitize(&mesh.normals);
-                                    let indices = mesh.indices.clone();
+                                let positions = sanitize(&mesh.positions);
+                                let normals = sanitize(&mesh.normals);
+                                let indices = mesh.indices.clone();
 
-                                    // Skip if all positions are zero (degenerate mesh)
-                                    if positions.iter().all(|v| *v == 0.0) {
-                                        bridge::log(&format!("Skipping #{} ({}): degenerate geometry", id, type_name));
-                                        errors += 1;
-                                        continue;
-                                    }
-
-                                    // Default color based on element type
-                                    let color = get_element_color(&ifc_type);
-
-                                    // Identity transform (placement already applied by router)
-                                    let transform = [
-                                        1.0, 0.0, 0.0, 0.0,
-                                        0.0, 1.0, 0.0, 0.0,
-                                        0.0, 0.0, 1.0, 0.0,
-                                        0.0, 0.0, 0.0, 1.0,
-                                    ];
-
-                                    geometry_data.push(GeometryData {
-                                        entity_id: id as u64,
-                                        positions,
-                                        normals,
-                                        indices,
-                                        color,
-                                        transform,
-                                        entity_type: type_name.to_string(),
-                                        name: name.clone(),
-                                    });
-
-                                    processed += 1;
+                                // Skip if all positions are zero (degenerate mesh)
+                                if positions.iter().all(|v| *v == 0.0) {
+                                    bridge::log(&format!("Skipping #{} ({}): degenerate geometry", id, type_name));
+                                    errors += 1;
+                                    continue;
                                 }
-                            }
-                            Err(e) => {
-                                // Log but don't fail - some entities may not have geometry
-                                bridge::log(&format!("Skipping #{} ({}): {}", id, type_name, e));
-                                errors += 1;
+
+                                // Default color based on element type
+                                let color = get_element_color(&ifc_type);
+
+                                // Identity transform (placement already applied by router)
+                                let transform = [
+                                    1.0, 0.0, 0.0, 0.0,
+                                    0.0, 1.0, 0.0, 0.0,
+                                    0.0, 0.0, 1.0, 0.0,
+                                    0.0, 0.0, 0.0, 1.0,
+                                ];
+
+                                geometry_data.push(GeometryData {
+                                    entity_id: id as u64,
+                                    positions,
+                                    normals,
+                                    indices,
+                                    color,
+                                    transform,
+                                    entity_type: type_name.to_string(),
+                                    name: name.clone(),
+                                });
+
+                                processed += 1;
                             }
                         }
-                    }
-                    Err(e) => {
-                        bridge::log_error(&format!("Failed to decode #{}: {:?}", id, e));
-                        errors += 1;
+                        Err(e) => {
+                            // Log but don't fail - some entities may not have geometry
+                            bridge::log(&format!("Skipping #{} ({}): {}", id, type_name, e));
+                            errors += 1;
+                        }
                     }
                 }
+                Err(e) => {
+                    bridge::log_error(&format!("Failed to decode #{}: {:?}", id, e));
+                    errors += 1;
+                }
+            }
 
-                // Update progress periodically
-                if processed % 50 == 0 {
-                    let percent = 30.0 + (processed as f32 / entity_count as f32) * 50.0;
-                    state.dispatch(ViewerAction::SetProgress(Progress {
-                        phase: format!("Processing geometry ({}/{})", processed, entity_count),
-                        percent,
-                    }));
-                }
+            // Update progress periodically
+            if processed % 50 == 0 {
+                let percent = 30.0 + (processed as f32 / entity_count as f32) * 50.0;
+                state.dispatch(ViewerAction::SetProgress(Progress {
+                    phase: format!("Processing geometry ({}/{})", processed, entity_count),
+                    percent,
+                }));
             }
         }
     }
