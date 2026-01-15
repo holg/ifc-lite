@@ -110,12 +110,21 @@ fn picking_system(
     meshes: Res<Assets<Mesh>>,
     mut selection: ResMut<SelectionState>,
     settings: Res<PickingSettings>,
+    ui_interactions: Query<&Interaction, With<bevy::ui::Node>>,
 ) {
     if !settings.enabled {
         return;
     }
 
     if !mouse_button.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // Don't pick if clicking on UI elements
+    let mouse_over_ui = ui_interactions.iter().any(|interaction| {
+        matches!(interaction, Interaction::Hovered | Interaction::Pressed)
+    });
+    if mouse_over_ui {
         return;
     }
 

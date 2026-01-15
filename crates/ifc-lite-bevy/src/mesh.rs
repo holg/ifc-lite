@@ -199,13 +199,21 @@ fn spawn_meshes_system(
             max = max.max(world_pos);
         }
 
+        // Check if material is semi-transparent (windows, glass)
+        let is_transparent = ifc_mesh.color[3] < 1.0;
+
         let material = StandardMaterial {
             base_color: color,
-            metallic: 0.0,
-            perceptual_roughness: 0.5, // Less rough for better light response
-            reflectance: 0.3,
+            metallic: if is_transparent { 0.0 } else { 0.0 },
+            perceptual_roughness: if is_transparent { 0.1 } else { 0.6 },
+            reflectance: if is_transparent { 0.5 } else { 0.3 },
             double_sided: true,
             cull_mode: None,
+            alpha_mode: if is_transparent {
+                bevy::prelude::AlphaMode::Blend
+            } else {
+                bevy::prelude::AlphaMode::Opaque
+            },
             ..default()
         };
 
@@ -367,29 +375,72 @@ fn poll_focus_command_system(
 
 /// Get default color for IFC entity type
 pub fn get_default_color(entity_type: &str) -> [f32; 4] {
-    match entity_type {
-        // Walls - light gray
-        s if s.contains("Wall") => [0.85, 0.85, 0.85, 1.0],
-        // Slabs/floors - darker gray
-        s if s.contains("Slab") => [0.7, 0.7, 0.7, 1.0],
-        // Roofs - dark gray
-        s if s.contains("Roof") => [0.5, 0.5, 0.5, 1.0],
-        // Beams/columns - steel blue
-        s if s.contains("Beam") || s.contains("Column") => [0.6, 0.65, 0.75, 1.0],
-        // Doors - brown
-        s if s.contains("Door") => [0.6, 0.4, 0.2, 1.0],
-        // Windows - light blue (semi-transparent)
-        s if s.contains("Window") => [0.7, 0.85, 0.95, 0.5],
-        // Stairs - medium gray
-        s if s.contains("Stair") => [0.65, 0.65, 0.65, 1.0],
+    // Convert to uppercase for case-insensitive matching
+    let upper = entity_type.to_uppercase();
+
+    if upper.contains("WALL") {
+        // Walls - light beige/cream (like reference)
+        [0.95, 0.92, 0.85, 1.0]
+    } else if upper.contains("SLAB") {
+        // Slabs/floors - off-white
+        [0.92, 0.92, 0.90, 1.0]
+    } else if upper.contains("ROOF") {
+        // Roofs - light gray
+        [0.85, 0.85, 0.85, 1.0]
+    } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
+        // Structural elements - light steel gray
+        [0.82, 0.84, 0.88, 1.0]
+    } else if upper.contains("DOOR") {
+        // Doors - wood brown
+        [0.65, 0.45, 0.25, 1.0]
+    } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
+        // Windows/curtain walls - light blue glass (semi-transparent)
+        [0.7, 0.85, 0.95, 0.4]
+    } else if upper.contains("STAIR") || upper.contains("RAMP") {
+        // Stairs/ramps - medium gray
+        [0.75, 0.75, 0.75, 1.0]
+    } else if upper.contains("RAILING") {
         // Railings - dark gray
-        s if s.contains("Railing") => [0.4, 0.4, 0.4, 1.0],
+        [0.5, 0.5, 0.5, 1.0]
+    } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
         // Furniture - wood color
-        s if s.contains("Furniture") => [0.7, 0.55, 0.35, 1.0],
+        [0.7, 0.55, 0.35, 1.0]
+    } else if upper.contains("SPACE") {
         // Space - very light, semi-transparent
-        s if s.contains("Space") => [0.9, 0.9, 0.95, 0.2],
-        // Default - neutral gray
-        _ => [0.75, 0.75, 0.75, 1.0],
+        [0.9, 0.9, 0.95, 0.15]
+    } else if upper.contains("PLATE") {
+        // Plates - light steel
+        [0.8, 0.82, 0.85, 1.0]
+    } else if upper.contains("COVERING") {
+        // Coverings - off-white
+        [0.9, 0.9, 0.88, 1.0]
+    } else if upper.contains("FOOTING") || upper.contains("PILE") {
+        // Foundations - concrete gray
+        [0.7, 0.7, 0.68, 1.0]
+    } else if upper.contains("PROXY") {
+        // Building element proxies - light gray
+        [0.8, 0.8, 0.8, 1.0]
+    } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
+        // MEP flow elements - metallic gray
+        [0.7, 0.72, 0.75, 1.0]
+    } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
+        // Electrical/energy elements - dark gray with slight blue
+        [0.5, 0.52, 0.58, 1.0]
+    } else if upper.contains("SANITARY") || upper.contains("FIRE") {
+        // Plumbing fixtures - white
+        [0.95, 0.95, 0.95, 1.0]
+    } else if upper.contains("SHADING") {
+        // Shading devices - medium gray
+        [0.6, 0.6, 0.6, 0.8]
+    } else if upper.contains("TRANSPORT") {
+        // Transport elements (elevators, etc) - dark gray
+        [0.45, 0.45, 0.48, 1.0]
+    } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
+        // Geographic/virtual - very light, semi-transparent
+        [0.85, 0.85, 0.85, 0.3]
+    } else {
+        // Default - neutral light gray
+        [0.85, 0.85, 0.85, 1.0]
     }
 }
 

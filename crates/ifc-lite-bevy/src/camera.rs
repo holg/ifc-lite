@@ -241,6 +241,8 @@ fn poll_camera_commands_system(
 
 /// Setup the 3D camera
 fn setup_camera(mut commands: Commands, controller: Res<CameraController>) {
+    use bevy::render::view::Msaa;
+
     let position = controller.get_position();
 
     commands.spawn((
@@ -253,6 +255,8 @@ fn setup_camera(mut commands: Commands, controller: Res<CameraController>) {
             ..default()
         }),
         MainCamera,
+        // Enable 4x MSAA for smoother edges
+        Msaa::Sample4,
     ));
 
     // Ambient light - lower for more contrast (like original viewer)
@@ -306,11 +310,18 @@ fn camera_input_system(
     mut mouse_wheel: MessageReader<MouseWheel>,
     mut controller: ResMut<CameraController>,
     windows: Query<&Window>,
+    // Check if mouse is over any UI element with Interaction
+    ui_interactions: Query<&Interaction, With<Node>>,
 ) {
     let Ok(window) = windows.single() else { return };
 
-    // Handle mouse button state
-    if mouse_button.just_pressed(MouseButton::Left) {
+    // Check if mouse is over any UI element (hovered or pressed)
+    let mouse_over_ui = ui_interactions.iter().any(|interaction| {
+        matches!(interaction, Interaction::Hovered | Interaction::Pressed)
+    });
+
+    // Handle mouse button state - only start drag if not over UI
+    if mouse_button.just_pressed(MouseButton::Left) && !mouse_over_ui {
         controller.is_dragging = true;
         if let Some(pos) = window.cursor_position() {
             controller.last_mouse_pos = pos;
@@ -363,10 +374,12 @@ fn camera_input_system(
         }
     }
 
-    // Handle mouse wheel for zoom
-    for ev in mouse_wheel.read() {
-        let zoom_delta = ev.y * controller.zoom_sensitivity;
-        controller.distance = (controller.distance * (1.0 - zoom_delta)).clamp(1.0, 500000.0);
+    // Handle mouse wheel for zoom - only when NOT over UI
+    if !mouse_over_ui {
+        for ev in mouse_wheel.read() {
+            let zoom_delta = ev.y * controller.zoom_sensitivity;
+            controller.distance = (controller.distance * (1.0 - zoom_delta)).clamp(1.0, 500000.0);
+        }
     }
 }
 

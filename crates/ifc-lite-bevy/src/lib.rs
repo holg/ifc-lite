@@ -2,12 +2,18 @@
 //!
 //! Bevy-based 3D viewer for IFC models with WebGPU/WebGL2 rendering.
 //! Supports orbit/pan/zoom camera controls, entity selection, and section planes.
+//!
+//! Features pure Bevy UI that works on both web (WASM) and native platforms.
 
 pub mod camera;
+pub mod loader;
 pub mod mesh;
 pub mod picking;
 pub mod section;
 pub mod storage;
+
+#[cfg(feature = "bevy-ui")]
+pub mod ui;
 
 use bevy::prelude::*;
 use rustc_hash::FxHashSet;
@@ -47,10 +53,14 @@ fn init_debug_from_url() {
 
 // Re-exports
 pub use camera::{CameraController, CameraMode, CameraPlugin};
+pub use loader::{LoadIfcFileEvent, LoaderPlugin, OpenFileDialogRequest};
 pub use mesh::{AutoFitState, IfcEntity, IfcMesh, MeshPlugin};
 pub use picking::{PickingPlugin, SelectionState};
 pub use section::{SectionPlane, SectionPlanePlugin};
 pub use storage::*;
+
+#[cfg(feature = "bevy-ui")]
+pub use ui::{IfcUiPlugin, UiState};
 
 /// Main IFC viewer plugin - combines all subsystems
 pub struct IfcViewerPlugin;
@@ -60,8 +70,18 @@ impl Plugin for IfcViewerPlugin {
         app.init_resource::<IfcSceneData>()
             .init_resource::<ViewerSettings>()
             .init_resource::<IfcTimestamp>()
-            .add_plugins((CameraPlugin, MeshPlugin, PickingPlugin, SectionPlanePlugin))
+            .add_plugins((
+                CameraPlugin,
+                MeshPlugin,
+                PickingPlugin,
+                SectionPlanePlugin,
+                LoaderPlugin,
+            ))
             .add_systems(Update, poll_scene_changes);
+
+        // Add Bevy UI when feature is enabled
+        #[cfg(feature = "bevy-ui")]
+        app.add_plugins(IfcUiPlugin);
     }
 }
 
@@ -312,6 +332,8 @@ pub fn run_native() {
             }),
             ..default()
         }))
+        // Dark gray background so we can see if rendering works
+        .insert_resource(ClearColor(Color::srgb(0.1, 0.1, 0.15)))
         .add_plugins(IfcViewerPlugin)
         .run();
 }
