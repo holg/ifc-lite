@@ -80,7 +80,7 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_gizmos",
     "bevy_picking",
-    "webgl2",
+    "webgpu",
     "tonemapping_luts",
     "png",
     "zstd_rust",
@@ -90,4 +90,4 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Storage", "console"] }
+web-sys = { version = "0.3", features = ["Window", "Location", "Storage", "console"] }

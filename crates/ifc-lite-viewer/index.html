@@ -9,19 +9,21 @@
 <body>
     <script type="module">
         // Geometry bridge - stores data in memory instead of localStorage
-        // This avoids the 5MB localStorage limit
-        window.ifcGeometryData = null;
+        // Uses binary format for geometry data (much smaller and faster)
+        window.ifcGeometryBinary = null;  // Uint8Array
         window.ifcEntityData = null;
         window.ifcDataTimestamp = '';
 
-        window.setIfcGeometry = function(json) {
-            window.ifcGeometryData = json;
+        // Binary geometry setter (from Yew)
+        window.setIfcGeometryBinary = function(uint8Array) {
+            window.ifcGeometryBinary = uint8Array;
             window.ifcDataTimestamp = Date.now().toString();
-            console.log('[JS Bridge] Geometry set, size:', json.length, 'bytes');
+            console.log('[JS Bridge] Geometry binary set, size:', uint8Array.length, 'bytes');
         };
 
-        window.getIfcGeometry = function() {
-            return window.ifcGeometryData;
+        // Binary geometry getter (for Bevy)
+        window.getIfcGeometryBinary = function() {
+            return window.ifcGeometryBinary;
         };
 
         window.setIfcEntities = function(json) {

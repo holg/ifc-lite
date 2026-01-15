@@ -1,10 +1,34 @@
 //! Bridge between Yew UI and Bevy renderer
 //!
 //! Handles data transfer via localStorage and JavaScript FFI.
+//! Uses binary format for geometry data to reduce memory usage and improve performance.
 
+use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
-use serde_json;
+use std::sync::atomic::{AtomicBool, Ordering};
 use wasm_bindgen::prelude::*;
+
+/// Global debug mode flag (set from URL parameter ?debug=1)
+static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
+
+/// Check if debug mode is enabled
+pub fn is_debug() -> bool {
+    DEBUG_MODE.load(Ordering::Relaxed)
+}
+
+/// Initialize debug mode from URL parameters
+/// Call this once at startup
+pub fn init_debug_from_url() {
+    if let Some(window) = web_sys::window() {
+        if let Ok(search) = window.location().search() {
+            if search.contains("debug=1") || search.contains("debug=true") {
+                DEBUG_MODE.store(true, Ordering::Relaxed);
+                // Always log this one
+                web_sys::console::log_1(&"[IFC-Lite] Debug mode enabled via URL".into());
+            }
+        }
+    }
+}
 
 /// Storage keys (must match ifc-lite-bevy)
 pub const GEOMETRY_KEY: &str = "ifc_lite_geometry";
@@ -32,9 +56,9 @@ extern "C" {
     #[wasm_bindgen(js_name = isBevyLoading)]
     pub fn is_bevy_loading() -> bool;
 
-    /// Set geometry data via JS bridge (avoids localStorage limit)
-    #[wasm_bindgen(js_name = setIfcGeometry)]
-    pub fn set_ifc_geometry(json: &str);
+    /// Set geometry data via JS bridge (binary format)
+    #[wasm_bindgen(js_name = setIfcGeometryBinary)]
+    pub fn set_ifc_geometry_binary(data: &Uint8Array);
 
     /// Set entity data via JS bridge
     #[wasm_bindgen(js_name = setIfcEntities)]
@@ -125,19 +149,121 @@ pub struct CameraCommand {
     pub mode: Option<String>,
 }
 
-/// Save geometry data for Bevy (uses JS bridge to avoid localStorage limits)
-pub fn save_geometry(geometry: &[GeometryData]) {
-    match serde_json::to_string(geometry) {
-        Ok(json) => {
-            log(&format!("[Yew] Geometry JSON size: {} bytes", json.len()));
-            // Use JS bridge instead of localStorage to handle large data
-            set_ifc_geometry(&json);
-            log("[Yew] Geometry sent via JS bridge");
+/// Binary format header magic number
+const BINARY_MAGIC: u32 = 0x49464342; // "IFCB" in ASCII
+
+/// Serialize geometry data to compact binary format
+/// Format:
+/// - u32: magic (0x49464342 = "IFCB")
+/// - u32: version (1)
+/// - u32: mesh_count
+/// - For each mesh:
+///   - u64: entity_id
+///   - u32: positions_len (number of f32s)
+///   - f32[]: positions
+///   - u32: normals_len
+///   - f32[]: normals
+///   - u32: indices_len
+///   - u32[]: indices
+///   - f32[4]: color
+///   - f32[16]: transform
+///   - u8: entity_type_len
+///   - utf8[]: entity_type
+///   - u8: name_len (0 if None)
+///   - utf8[]: name (if any)
+fn serialize_geometry_binary(geometry: &[GeometryData]) -> Vec<u8> {
+    // Estimate capacity: header + meshes
+    let estimated_size: usize = 12
+        + geometry
+            .iter()
+            .map(|g| {
+                8 + 4
+                    + g.positions.len() * 4
+                    + 4
+                    + g.normals.len() * 4
+                    + 4
+                    + g.indices.len() * 4
+                    + 16
+                    + 64
+                    + 1
+                    + g.entity_type.len()
+                    + 1
+                    + g.name.as_ref().map(|n| n.len()).unwrap_or(0)
+            })
+            .sum::<usize>();
+
+    let mut buf = Vec::with_capacity(estimated_size);
+
+    // Header
+    buf.extend_from_slice(&BINARY_MAGIC.to_le_bytes());
+    buf.extend_from_slice(&1u32.to_le_bytes()); // version
+    buf.extend_from_slice(&(geometry.len() as u32).to_le_bytes());
+
+    for mesh in geometry {
+        // entity_id
+        buf.extend_from_slice(&mesh.entity_id.to_le_bytes());
+
+        // positions
+        buf.extend_from_slice(&(mesh.positions.len() as u32).to_le_bytes());
+        for &p in &mesh.positions {
+            buf.extend_from_slice(&p.to_le_bytes());
         }
-        Err(e) => {
-            log_error(&format!("[Yew] Failed to serialize geometry: {:?}", e));
+
+        // normals
+        buf.extend_from_slice(&(mesh.normals.len() as u32).to_le_bytes());
+        for &n in &mesh.normals {
+            buf.extend_from_slice(&n.to_le_bytes());
+        }
+
+        // indices
+        buf.extend_from_slice(&(mesh.indices.len() as u32).to_le_bytes());
+        for &i in &mesh.indices {
+            buf.extend_from_slice(&i.to_le_bytes());
+        }
+
+        // color
+        for &c in &mesh.color {
+            buf.extend_from_slice(&c.to_le_bytes());
+        }
+
+        // transform
+        for &t in &mesh.transform {
+            buf.extend_from_slice(&t.to_le_bytes());
+        }
+
+        // entity_type
+        let type_bytes = mesh.entity_type.as_bytes();
+        buf.push(type_bytes.len() as u8);
+        buf.extend_from_slice(type_bytes);
+
+        // name
+        if let Some(ref name) = mesh.name {
+            let name_bytes = name.as_bytes();
+            buf.push(name_bytes.len().min(255) as u8);
+            buf.extend_from_slice(&name_bytes[..name_bytes.len().min(255)]);
+        } else {
+            buf.push(0);
         }
     }
+
+    buf
+}
+
+/// Save geometry data for Bevy (uses binary format via JS bridge)
+pub fn save_geometry(geometry: &[GeometryData]) {
+    let binary = serialize_geometry_binary(geometry);
+    log(&format!(
+        "[Yew] Geometry binary size: {} bytes ({} meshes)",
+        binary.len(),
+        geometry.len()
+    ));
+
+    // Create Uint8Array and copy data
+    let array = Uint8Array::new_with_length(binary.len() as u32);
+    array.copy_from(&binary);
+
+    set_ifc_geometry_binary(&array);
+    log("[Yew] Geometry sent via JS bridge (binary)");
 }
 
 /// Save entity data for Bevy (uses JS bridge)
@@ -224,12 +350,24 @@ pub fn clear_storage() {
     }
 }
 
-/// Log to browser console
+/// Log to browser console (only in debug mode)
 pub fn log(msg: &str) {
-    web_sys::console::log_1(&msg.into());
+    if is_debug() {
+        web_sys::console::log_1(&msg.into());
+    }
 }
 
-/// Log error to browser console
+/// Log error to browser console (always shown)
 pub fn log_error(msg: &str) {
     web_sys::console::error_1(&msg.into());
+}
+
+/// Log warning to browser console (always shown)
+pub fn log_warn(msg: &str) {
+    web_sys::console::warn_1(&msg.into());
+}
+
+/// Log info that should always be shown (e.g., load complete)
+pub fn log_info(msg: &str) {
+    web_sys::console::info_1(&msg.into());
 }

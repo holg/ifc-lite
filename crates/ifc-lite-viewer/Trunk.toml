@@ -8,6 +8,7 @@ minify = "never"
 ignore = ["dist", "target"]
 
 [serve]
-address = "127.0.0.1"
-port = 8080
+addresses = ["127.0.0.1"]
+port = 8082
 open = false
+

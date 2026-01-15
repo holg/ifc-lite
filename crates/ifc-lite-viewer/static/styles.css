@@ -367,6 +367,31 @@ html, body {
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+    transition: background-color 0.15s ease;
+}
+
+.hierarchy-panel.drag-over {
+    background-color: rgba(59, 130, 246, 0.1);
+}
+
+.drop-zone {
+    border: 2px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    margin: 8px;
+    transition: all 0.15s ease;
+}
+
+.drop-zone.active {
+    border-color: var(--accent-blue);
+    background-color: rgba(59, 130, 246, 0.15);
+}
+
+.drop-zone.active .empty-icon {
+    transform: scale(1.2);
+}
+
+.drop-zone.active .empty-text {
+    color: var(--accent-blue);
 }
 
 .search-bar {
@@ -429,14 +454,27 @@ html, body {
 .entity-list {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Virtual scrolling */
+.virtual-scroll-content {
+    position: relative;
 }
 
 /* Tree Controls */
 .tree-controls {
     display: flex;
+    align-items: center;
     gap: 4px;
     padding: 4px 8px;
     border-bottom: 1px solid var(--border-color);
+}
+
+.tree-count-total {
+    flex: 1;
+    font-size: 11px;
+    color: var(--text-muted);
 }
 
 .tree-control-btn {
@@ -468,10 +506,11 @@ html, body {
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    padding-left: calc(8px + var(--depth, 0) * 16px);
+    /* padding-left set inline for virtual scrolling */
     cursor: pointer;
     transition: background 0.1s;
-    min-height: 28px;
+    height: 28px;
+    box-sizing: border-box;
 }
 
 .tree-row:hover {

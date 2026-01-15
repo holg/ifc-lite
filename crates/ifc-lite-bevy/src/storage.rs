@@ -2,9 +2,13 @@
 //!
 //! This module handles data transfer between Yew UI and Bevy renderer
 //! using localStorage as an intermediary (proven pattern from gldf-rs).
+//! Geometry data uses binary format for efficiency.
 
 use crate::{EntityInfo, IfcMesh};
 use serde::{Deserialize, Serialize};
+
+/// Binary format header magic number
+const BINARY_MAGIC: u32 = 0x49464342; // "IFCB" in ASCII
 
 /// Storage keys for localStorage
 pub const GEOMETRY_KEY: &str = "ifc_lite_geometry";
@@ -80,12 +84,13 @@ pub struct CameraCommandStorage {
 #[cfg(target_arch = "wasm32")]
 mod wasm_storage {
     use super::*;
+    use js_sys::Uint8Array;
     use wasm_bindgen::prelude::*;
 
     #[wasm_bindgen]
     extern "C" {
-        #[wasm_bindgen(js_name = getIfcGeometry)]
-        fn get_ifc_geometry() -> Option<String>;
+        #[wasm_bindgen(js_name = getIfcGeometryBinary)]
+        fn get_ifc_geometry_binary() -> Option<Uint8Array>;
 
         #[wasm_bindgen(js_name = getIfcEntities)]
         fn get_ifc_entities() -> Option<String>;
@@ -103,22 +108,122 @@ mod wasm_storage {
         if ts.is_empty() { None } else { Some(ts) }
     }
 
+    /// Deserialize geometry from binary format
+    fn deserialize_geometry_binary(data: &[u8]) -> Option<Vec<IfcMesh>> {
+        let mut cursor = 0;
+
+        // Helper to read bytes
+        macro_rules! read_bytes {
+            ($n:expr) => {{
+                if cursor + $n > data.len() {
+                    crate::log("[Bevy] Binary data truncated");
+                    return None;
+                }
+                let slice = &data[cursor..cursor + $n];
+                cursor += $n;
+                slice
+            }};
+        }
+
+        // Read header
+        let magic = u32::from_le_bytes(read_bytes!(4).try_into().ok()?);
+        if magic != BINARY_MAGIC {
+            crate::log(&format!("[Bevy] Invalid magic: {:08x}", magic));
+            return None;
+        }
+
+        let version = u32::from_le_bytes(read_bytes!(4).try_into().ok()?);
+        if version != 1 {
+            crate::log(&format!("[Bevy] Unsupported version: {}", version));
+            return None;
+        }
+
+        let mesh_count = u32::from_le_bytes(read_bytes!(4).try_into().ok()?) as usize;
+        crate::log(&format!("[Bevy] Parsing {} meshes from binary", mesh_count));
+
+        let mut meshes = Vec::with_capacity(mesh_count);
+
+        for _ in 0..mesh_count {
+            // entity_id
+            let entity_id = u64::from_le_bytes(read_bytes!(8).try_into().ok()?);
+
+            // positions
+            let positions_len = u32::from_le_bytes(read_bytes!(4).try_into().ok()?) as usize;
+            let mut positions = Vec::with_capacity(positions_len);
+            for _ in 0..positions_len {
+                positions.push(f32::from_le_bytes(read_bytes!(4).try_into().ok()?));
+            }
+
+            // normals
+            let normals_len = u32::from_le_bytes(read_bytes!(4).try_into().ok()?) as usize;
+            let mut normals = Vec::with_capacity(normals_len);
+            for _ in 0..normals_len {
+                normals.push(f32::from_le_bytes(read_bytes!(4).try_into().ok()?));
+            }
+
+            // indices
+            let indices_len = u32::from_le_bytes(read_bytes!(4).try_into().ok()?) as usize;
+            let mut indices = Vec::with_capacity(indices_len);
+            for _ in 0..indices_len {
+                indices.push(u32::from_le_bytes(read_bytes!(4).try_into().ok()?));
+            }
+
+            // color
+            let mut color = [0.0f32; 4];
+            for c in &mut color {
+                *c = f32::from_le_bytes(read_bytes!(4).try_into().ok()?);
+            }
+
+            // transform
+            let mut transform = [0.0f32; 16];
+            for t in &mut transform {
+                *t = f32::from_le_bytes(read_bytes!(4).try_into().ok()?);
+            }
+
+            // entity_type
+            let type_len = read_bytes!(1)[0] as usize;
+            let entity_type = String::from_utf8_lossy(read_bytes!(type_len)).to_string();
+
+            // name
+            let name_len = read_bytes!(1)[0] as usize;
+            let name = if name_len > 0 {
+                Some(String::from_utf8_lossy(read_bytes!(name_len)).to_string())
+            } else {
+                None
+            };
+
+            meshes.push(IfcMesh {
+                entity_id,
+                positions,
+                normals,
+                indices,
+                color,
+                transform,
+                entity_type,
+                name,
+            });
+        }
+
+        Some(meshes)
+    }
+
     pub fn load_geometry() -> Option<Vec<IfcMesh>> {
-        let json = match get_ifc_geometry() {
-            Some(j) if !j.is_empty() => j,
+        let array = match get_ifc_geometry_binary() {
+            Some(a) if a.length() > 0 => a,
             _ => {
                 crate::log("[Bevy] No geometry in JS bridge");
                 return None;
             }
         };
-        crate::log(&format!("[Bevy] Geometry JSON size: {} bytes", json.len()));
-        match serde_json::from_str(&json) {
-            Ok(meshes) => Some(meshes),
-            Err(e) => {
-                crate::log(&format!("[Bevy] Error parsing geometry JSON: {:?}", e));
-                None
-            }
-        }
+
+        crate::log(&format!(
+            "[Bevy] Geometry binary size: {} bytes",
+            array.length()
+        ));
+
+        // Copy to Vec<u8>
+        let data = array.to_vec();
+        deserialize_geometry_binary(&data)
     }
 
     pub fn load_entities() -> Option<Vec<EntityInfo>> {

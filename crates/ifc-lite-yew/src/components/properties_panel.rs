@@ -138,21 +138,57 @@ pub fn PropertiesPanel() -> Html {
                     </div>
                 </div>
 
-                // Placeholder for property sets
-                <div class="property-section">
-                    <div class="section-header">{"Property Sets"}</div>
-                    <div class="empty-state small">
-                        <span class="empty-text">{"Property extraction coming soon"}</span>
+                // Property Sets
+                if !entity.property_sets.is_empty() {
+                    { for entity.property_sets.iter().map(|pset| html! {
+                        <div class="property-section">
+                            <div class="section-header">{&pset.name}</div>
+                            { for pset.properties.iter().map(|prop| html! {
+                                <div class="property-row">
+                                    <span class="property-label">{&prop.name}</span>
+                                    <span class="property-value">
+                                        {&prop.value}
+                                        if let Some(ref unit) = prop.unit {
+                                            <span class="property-unit">{format!(" {}", unit)}</span>
+                                        }
+                                    </span>
+                                </div>
+                            })}
+                        </div>
+                    })}
+                } else {
+                    <div class="property-section">
+                        <div class="section-header">{"Property Sets"}</div>
+                        <div class="empty-state small">
+                            <span class="empty-text">{"No property sets"}</span>
+                        </div>
                     </div>
-                </div>
+                }
 
-                // Placeholder for quantities
-                <div class="property-section">
-                    <div class="section-header">{"Quantities"}</div>
-                    <div class="empty-state small">
-                        <span class="empty-text">{"Quantity extraction coming soon"}</span>
+                // Quantities
+                if !entity.quantities.is_empty() {
+                    <div class="property-section">
+                        <div class="section-header">{"Quantities"}</div>
+                        { for entity.quantities.iter().map(|qty| html! {
+                            <div class="property-row">
+                                <span class="property-label">{&qty.name}</span>
+                                <span class="property-value">
+                                    {format!("{:.3}", qty.value)}
+                                    if !qty.unit.is_empty() {
+                                        <span class="property-unit">{format!(" {}", qty.unit)}</span>
+                                    }
+                                </span>
+                            </div>
+                        })}
                     </div>
-                </div>
+                } else {
+                    <div class="property-section">
+                        <div class="section-header">{"Quantities"}</div>
+                        <div class="empty-state small">
+                            <span class="empty-text">{"No quantities"}</span>
+                        </div>
+                    </div>
+                }
             } else if state.selected_ids.len() > 1 {
                 // Multiple selection
                 <div class="multi-selection">

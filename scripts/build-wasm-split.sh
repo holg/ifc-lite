@@ -399,7 +399,8 @@ if [[ "$BUILD_LEPTOS" == "true" ]]; then
             fi
         done
     fi
-    if [[ "$LEPTOS_NEEDS_BUILD" != "true" ]] && { [[ ! -d "$DIST_DIR" ]] || [[ -z "$(ls -A "$DIST_DIR"/*.wasm 2>/dev/null)" ]]; }; then
+    # Check both root and wasm/ subdirectory for existing wasm files
+    if [[ "$LEPTOS_NEEDS_BUILD" != "true" ]] && { [[ ! -d "$DIST_DIR" ]] || { [[ -z "$(ls -A "$DIST_DIR"/*.wasm 2>/dev/null)" ]] && [[ -z "$(ls -A "$DIST_DIR/wasm/"*.wasm 2>/dev/null)" ]]; }; }; then
         LEPTOS_NEEDS_BUILD=true
     fi
 
@@ -414,6 +415,50 @@ if [[ "$BUILD_LEPTOS" == "true" ]]; then
         if [[ ${PIPESTATUS[0]} -eq 0 ]] && ! grep -q "ERROR" /tmp/trunk-build.log; then
             echo "  trunk build succeeded"
             TRUNK_SUCCESS=true
+        fi
+
+        # Organize dist into subdirectories (wasm/, js/, styles/)
+        if [[ "$TRUNK_SUCCESS" == "true" ]]; then
+            echo "  Organizing dist into subdirectories..."
+            cd "$DIST_DIR"
+            mkdir -p wasm js styles
+            mv *.wasm wasm/ 2>/dev/null || true
+            mv *.js js/ 2>/dev/null || true
+            mv *.css styles/ 2>/dev/null || true
+
+            # Update index.html references
+            if [[ "$(uname)" == "Darwin" ]]; then
+                sed -i '' \
+                    -e 's|href="/styles-|href="/styles/styles-|g' \
+                    -e 's|href="/ifc-lite-viewer-\([^"]*\)\.js"|href="/js/ifc-lite-viewer-\1.js"|g' \
+                    -e 's|href="/ifc-lite-viewer-\([^"]*\)_bg\.wasm"|href="/wasm/ifc-lite-viewer-\1_bg.wasm"|g' \
+                    -e "s|from '/ifc-lite-viewer-|from '/js/ifc-lite-viewer-|g" \
+                    -e "s|module_or_path: '/ifc-lite-viewer-|module_or_path: '/wasm/ifc-lite-viewer-|g" \
+                    index.html
+            else
+                sed -i \
+                    -e 's|href="/styles-|href="/styles/styles-|g' \
+                    -e 's|href="/ifc-lite-viewer-\([^"]*\)\.js"|href="/js/ifc-lite-viewer-\1.js"|g' \
+                    -e 's|href="/ifc-lite-viewer-\([^"]*\)_bg\.wasm"|href="/wasm/ifc-lite-viewer-\1_bg.wasm"|g' \
+                    -e "s|from '/ifc-lite-viewer-|from '/js/ifc-lite-viewer-|g" \
+                    -e "s|module_or_path: '/ifc-lite-viewer-|module_or_path: '/wasm/ifc-lite-viewer-|g" \
+                    index.html
+            fi
+
+            # Update JS file to reference wasm in wasm/ subdirectory
+            JS_FILE=$(ls js/ifc-lite-viewer-*.js 2>/dev/null | head -1)
+            if [[ -n "$JS_FILE" ]]; then
+                WASM_FILE=$(ls wasm/ifc-lite-viewer-*_bg.wasm 2>/dev/null | head -1 | xargs basename)
+                if [[ -n "$WASM_FILE" ]]; then
+                    if [[ "$(uname)" == "Darwin" ]]; then
+                        sed -i '' "s|$WASM_FILE|../wasm/$WASM_FILE|g" "$JS_FILE"
+                    else
+                        sed -i "s|$WASM_FILE|../wasm/$WASM_FILE|g" "$JS_FILE"
+                    fi
+                fi
+            fi
+            echo "  Dist organized: wasm/, js/, styles/"
+            cd "$WASM_DIR"
         fi
 
         if [[ "$TRUNK_SUCCESS" != "true" ]]; then
@@ -897,16 +942,16 @@ if [[ "$HAVE_BROTLI" == "true" ]]; then
 
     FILES_TO_COMPRESS=()
 
-    for f in "$DIST_DIR/"*.wasm "$DIST_DIR/bevy/"*.wasm "$DIST_DIR/typst/"*.wasm; do
+    # Root level files
+    for f in "$DIST_DIR/"*.wasm "$DIST_DIR/"*.js "$DIST_DIR/"*.css; do
         [[ -f "$f" ]] && FILES_TO_COMPRESS+=("$f")
     done
 
-    for f in "$DIST_DIR/"*.js "$DIST_DIR/bevy/"*.js "$DIST_DIR/typst/"*.js; do
-        [[ -f "$f" ]] && FILES_TO_COMPRESS+=("$f")
-    done
-
-    for f in "$DIST_DIR/"*.css; do
-        [[ -f "$f" ]] && FILES_TO_COMPRESS+=("$f")
+    # Subdirectory files (bevy/, typst/, wasm/, js/, styles/)
+    for subdir in bevy typst wasm js styles; do
+        for f in "$DIST_DIR/$subdir/"*.wasm "$DIST_DIR/$subdir/"*.js "$DIST_DIR/$subdir/"*.css; do
+            [[ -f "$f" ]] && FILES_TO_COMPRESS+=("$f")
+        done
     done
 
     echo "  Compressing ${#FILES_TO_COMPRESS[@]} files in parallel..."
@@ -1008,7 +1053,9 @@ elif [[ "$BUILD_LEPTOS" == "true" ]]; then
 fi
 echo ""
 
+# Check both root and wasm/ subdirectory for leptos wasm
 LEPTOS_WASM=$(ls "$DIST_DIR/"*_bg.wasm 2>/dev/null | head -1)
+[[ -z "$LEPTOS_WASM" ]] && LEPTOS_WASM=$(ls "$DIST_DIR/wasm/"*_bg.wasm 2>/dev/null | head -1)
 BEVY_WASM_FILE=$(ls "$DIST_DIR/bevy/"*_bg.wasm 2>/dev/null | head -1)
 TYPST_WASM_FILE=$(ls "$DIST_DIR/typst/"*_bg.wasm 2>/dev/null | head -1)
 
@@ -1016,17 +1063,17 @@ LEPTOS_SIZE=$(ls -lh "$LEPTOS_WASM" 2>/dev/null | awk '{print $5}')
 BEVY_SIZE=$(ls -lh "$BEVY_WASM_FILE" 2>/dev/null | awk '{print $5}')
 TYPST_SIZE=$(ls -lh "$TYPST_WASM_FILE" 2>/dev/null | awk '{print $5}')
 
-echo "Bundle sizes (raw / compressed):"
+echo "Bundle sizes (raw / brotli):"
 if [[ "$HAVE_BROTLI" == "true" ]]; then
     LEPTOS_BR=$(ls -lh "${LEPTOS_WASM}.br" 2>/dev/null | awk '{print $5}')
     BEVY_BR=$(ls -lh "${BEVY_WASM_FILE}.br" 2>/dev/null | awk '{print $5}')
     TYPST_BR=$(ls -lh "${TYPST_WASM_FILE}.br" 2>/dev/null | awk '{print $5}')
 
-    [[ -n "$LEPTOS_SIZE" ]] && echo "  Leptos editor:      $LEPTOS_SIZE -> $LEPTOS_BR (loads immediately)"
+    [[ -n "$LEPTOS_SIZE" ]] && echo "  Yew/Leptos editor:  $LEPTOS_SIZE -> $LEPTOS_BR (loads immediately)"
     [[ -n "$BEVY_SIZE" ]] && echo "  Bevy 3D viewer:     $BEVY_SIZE -> $BEVY_BR (loads on demand)"
     [[ -n "$TYPST_SIZE" ]] && echo "  Typst PDF compiler: $TYPST_SIZE -> $TYPST_BR (loads on demand)"
 else
-    [[ -n "$LEPTOS_SIZE" ]] && echo "  Leptos editor:      $LEPTOS_SIZE (loads immediately)"
+    [[ -n "$LEPTOS_SIZE" ]] && echo "  Yew/Leptos editor:  $LEPTOS_SIZE (loads immediately)"
     [[ -n "$BEVY_SIZE" ]] && echo "  Bevy 3D viewer:     $BEVY_SIZE (loads on demand)"
     [[ -n "$TYPST_SIZE" ]] && echo "  Typst PDF compiler: $TYPST_SIZE (loads on demand)"
 fi
@@ -1056,6 +1103,28 @@ if [[ "$ACTION" == "deploy" ]]; then
     fi
 
     echo "=== Deploying to $DEPLOY_TARGET ==="
+
+    # Optional: clean up old hashed files on server before deploying
+    # Use: ./build-wasm-split.sh deploy clean
+    if [[ "$2" == "clean" ]]; then
+        # Extract host and path from target (format: user@host:/path/)
+        DEPLOY_HOST="${DEPLOY_TARGET%%:*}"
+        DEPLOY_PATH="${DEPLOY_TARGET#*:}"
+
+        echo "Cleaning up old hashed files on server..."
+        ssh "$DEPLOY_HOST" "
+            cd '$DEPLOY_PATH' 2>/dev/null || exit 0
+            # Remove old hashed files
+            find . -maxdepth 1 -name 'bevy-loader-*.js' -type f -delete 2>/dev/null
+            find . -maxdepth 1 -name 'bevy-loader-*.js.br' -type f -delete 2>/dev/null
+            find . -maxdepth 1 -name 'typst-loader-*.js' -type f -delete 2>/dev/null
+            find . -maxdepth 1 -name 'typst-loader-*.js.br' -type f -delete 2>/dev/null
+            # Clean subdirectories
+            rm -rf bevy/ js/ wasm/ styles/ typst/ 2>/dev/null
+            echo 'Old files cleaned'
+        " || echo "  (cleanup failed, continuing with deploy)"
+    fi
+
     echo "Running: rsync $RSYNC_FLAGS $DIST_DIR/ $DEPLOY_TARGET"
     echo ""
     rsync $RSYNC_FLAGS "$DIST_DIR/" "$DEPLOY_TARGET"

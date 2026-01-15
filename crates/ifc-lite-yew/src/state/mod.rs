@@ -100,6 +100,30 @@ impl Measurement {
     }
 }
 
+/// A single property value
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PropertyValue {
+    pub name: String,
+    pub value: String,
+    pub unit: Option<String>,
+}
+
+/// A property set containing multiple properties
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PropertySet {
+    pub name: String,
+    pub properties: Vec<PropertyValue>,
+}
+
+/// A quantity value (length, area, volume, etc.)
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QuantityValue {
+    pub name: String,
+    pub value: f64,
+    pub unit: String,
+    pub quantity_type: String, // "Length", "Area", "Volume", "Count", "Weight", "Time"
+}
+
 /// Entity info for display
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityInfo {
@@ -109,6 +133,8 @@ pub struct EntityInfo {
     pub global_id: Option<String>,
     pub storey: Option<String>,
     pub storey_elevation: Option<f32>,
+    pub property_sets: Vec<PropertySet>,
+    pub quantities: Vec<QuantityValue>,
 }
 
 /// Storey info

@@ -12,6 +12,37 @@ pub mod storage;
 use bevy::prelude::*;
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Global debug mode flag (set from URL parameter ?debug=1)
+static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
+
+/// Check if debug mode is enabled
+pub fn is_debug() -> bool {
+    DEBUG_MODE.load(Ordering::Relaxed)
+}
+
+/// Initialize debug mode from URL parameters
+#[cfg(target_arch = "wasm32")]
+fn init_debug_from_url() {
+    if let Some(window) = web_sys::window() {
+        if let Ok(search) = window.location().search() {
+            let search_str: &str = &search;
+            if search_str.contains("debug=1") || search_str.contains("debug=true") {
+                DEBUG_MODE.store(true, Ordering::Relaxed);
+                web_sys::console::log_1(&"[Bevy] Debug mode enabled".into());
+            }
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn init_debug_from_url() {
+    // Native: check env var
+    if std::env::var("DEBUG").is_ok() {
+        DEBUG_MODE.store(true, Ordering::Relaxed);
+    }
+}
 
 // Re-exports
 pub use camera::{CameraController, CameraMode, CameraPlugin};
@@ -191,14 +222,29 @@ pub fn poll_scene_changes(
     }
 }
 
-/// Log to browser console (WASM) or stdout (native)
+/// Log to browser console (WASM) or stdout (native) - only in debug mode
 #[cfg(target_arch = "wasm32")]
 pub fn log(msg: &str) {
-    web_sys::console::log_1(&msg.into());
+    if is_debug() {
+        web_sys::console::log_1(&msg.into());
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn log(msg: &str) {
+    if is_debug() {
+        println!("{}", msg);
+    }
+}
+
+/// Log info that should always be shown
+#[cfg(target_arch = "wasm32")]
+pub fn log_info(msg: &str) {
+    web_sys::console::info_1(&msg.into());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn log_info(msg: &str) {
     println!("{}", msg);
 }
 
@@ -207,6 +253,7 @@ pub fn log(msg: &str) {
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn run_on_canvas(canvas_selector: &str) {
     console_error_panic_hook::set_once();
+    init_debug_from_url();
     log(&format!("[Bevy] Starting on canvas: {}", canvas_selector));
 
     // Load initial data from localStorage
