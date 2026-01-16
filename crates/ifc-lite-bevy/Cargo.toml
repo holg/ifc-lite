@@ -17,10 +17,10 @@ name = "ifc-viewer"
 path = "src/main.rs"
 
 [features]
-default = ["bevy-ui"]
-# Use pure Bevy UI (works on web and native)
+default = ["external-ui"]
+# Use pure Bevy UI (works on web and native) - WIP, waiting for Bevy 0.19
 bevy-ui = []
-# Use external UI (Yew for web, potential egui for native) - 3D viewport only
+# Use external UI (Yew for web, SwiftUI for Apple) - 3D viewport only
 external-ui = []
 webgl2 = []
 native-view = [] # Enable embedded native view support (iOS/macOS)
@@ -50,7 +50,7 @@ raw-window-handle = "0.6"
 # UUID for window IDs
 uuid = { version = "1.0", features = ["v4"] }
 
-# Bevy 3D engine - common features
+# Bevy 3D engine - common features (viewport only, no UI)
 bevy = { version = "0.18", default-features = false, features = [
     "bevy_asset",
     "bevy_winit",
@@ -60,10 +60,6 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_gizmos",
     "bevy_picking",
-    "bevy_ui",
-    "bevy_ui_render",
-    "bevy_text",
-    "default_font",
     "tonemapping_luts",
     "png",
     "zstd_rust",
@@ -71,7 +67,6 @@ bevy = { version = "0.18", default-features = false, features = [
 
 # Desktop (Linux/Windows) dependencies
 [target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "ios"), not(target_os = "macos")))'.dependencies]
-rfd = "0.15"
 bevy = { version = "0.18", default-features = false, features = [
     "bevy_asset",
     "bevy_winit",
@@ -81,19 +76,14 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_gizmos",
     "bevy_picking",
-    "bevy_ui",
-    "bevy_ui_render",
-    "bevy_text",
-    "bevy_sprite",
-    "default_font",
     "multi_threaded",
     "tonemapping_luts",
     "png",
     "x11",
     "zstd_rust",
-    # GPU backends - wgpu will pick best available (Metal on macOS, Vulkan on Linux)
     "webgpu",
 ] }
+rfd = "0.15"
 
 # WASM build dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -107,10 +97,6 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_gizmos",
     "bevy_picking",
-    "bevy_ui",
-    "bevy_ui_render",
-    "bevy_text",
-    "default_font",
     "webgpu",
     "tonemapping_luts",
     "png",

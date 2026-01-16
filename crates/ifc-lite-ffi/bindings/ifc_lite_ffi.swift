@@ -545,6 +545,14 @@ public protocol IfcSceneProtocol : AnyObject {
     func clearSelection() 
     
     /**
+     * Get batched meshes for efficient rendering
+     * Returns 2 batches: opaque geometry and transparent geometry.
+     * All vertices are pre-transformed to world space with vertex colors.
+     * Use this for maximum rendering performance.
+     */
+    func getBatchedMeshes()  -> [BatchedMeshData]
+    
+    /**
      * Get scene bounds
      */
     func getBounds()  -> SceneBounds?
@@ -567,7 +575,7 @@ public protocol IfcSceneProtocol : AnyObject {
     func getMesh(entityId: UInt64)  -> MeshData?
     
     /**
-     * Get all meshes
+     * Get all meshes (per-entity, slower rendering)
      */
     func getMeshes()  -> [MeshData]
     
@@ -721,6 +729,19 @@ open func clearSelection() {try! rustCall() {
 }
     
     /**
+     * Get batched meshes for efficient rendering
+     * Returns 2 batches: opaque geometry and transparent geometry.
+     * All vertices are pre-transformed to world space with vertex colors.
+     * Use this for maximum rendering performance.
+     */
+open func getBatchedMeshes() -> [BatchedMeshData] {
+    return try!  FfiConverterSequenceTypeBatchedMeshData.lift(try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_ifcscene_get_batched_meshes(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
      * Get scene bounds
      */
 open func getBounds() -> SceneBounds? {
@@ -770,7 +791,7 @@ open func getMesh(entityId: UInt64) -> MeshData? {
 }
     
     /**
-     * Get all meshes
+     * Get all meshes (per-entity, slower rendering)
      */
 open func getMeshes() -> [MeshData] {
     return try!  FfiConverterSequenceTypeMeshData.lift(try! rustCall() {
@@ -1007,6 +1028,131 @@ public func FfiConverterTypeIfcScene_lift(_ pointer: UnsafeMutableRawPointer) th
 #endif
 public func FfiConverterTypeIfcScene_lower(_ value: IfcScene) -> UnsafeMutableRawPointer {
     return FfiConverterTypeIfcScene.lower(value)
+}
+
+
+/**
+ * Batched mesh data for efficient rendering
+ * All vertices are pre-transformed to world space and combined into single buffers.
+ * Use this for maximum rendering performance (2 draw calls instead of N).
+ */
+public struct BatchedMeshData {
+    /**
+     * Interleaved vertex data: [x, y, z, nx, ny, nz, r, g, b, a, ...] (10 floats per vertex)
+     */
+    public var vertices: [Float]
+    /**
+     * Triangle indices
+     */
+    public var indices: [UInt32]
+    /**
+     * Whether this batch contains transparent geometry
+     */
+    public var isTransparent: Bool
+    /**
+     * Number of vertices
+     */
+    public var vertexCount: UInt32
+    /**
+     * Number of triangles
+     */
+    public var triangleCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Interleaved vertex data: [x, y, z, nx, ny, nz, r, g, b, a, ...] (10 floats per vertex)
+         */vertices: [Float], 
+        /**
+         * Triangle indices
+         */indices: [UInt32], 
+        /**
+         * Whether this batch contains transparent geometry
+         */isTransparent: Bool, 
+        /**
+         * Number of vertices
+         */vertexCount: UInt32, 
+        /**
+         * Number of triangles
+         */triangleCount: UInt32) {
+        self.vertices = vertices
+        self.indices = indices
+        self.isTransparent = isTransparent
+        self.vertexCount = vertexCount
+        self.triangleCount = triangleCount
+    }
+}
+
+
+
+extension BatchedMeshData: Equatable, Hashable {
+    public static func ==(lhs: BatchedMeshData, rhs: BatchedMeshData) -> Bool {
+        if lhs.vertices != rhs.vertices {
+            return false
+        }
+        if lhs.indices != rhs.indices {
+            return false
+        }
+        if lhs.isTransparent != rhs.isTransparent {
+            return false
+        }
+        if lhs.vertexCount != rhs.vertexCount {
+            return false
+        }
+        if lhs.triangleCount != rhs.triangleCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(vertices)
+        hasher.combine(indices)
+        hasher.combine(isTransparent)
+        hasher.combine(vertexCount)
+        hasher.combine(triangleCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBatchedMeshData: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BatchedMeshData {
+        return
+            try BatchedMeshData(
+                vertices: FfiConverterSequenceFloat.read(from: &buf), 
+                indices: FfiConverterSequenceUInt32.read(from: &buf), 
+                isTransparent: FfiConverterBool.read(from: &buf), 
+                vertexCount: FfiConverterUInt32.read(from: &buf), 
+                triangleCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BatchedMeshData, into buf: inout [UInt8]) {
+        FfiConverterSequenceFloat.write(value.vertices, into: &buf)
+        FfiConverterSequenceUInt32.write(value.indices, into: &buf)
+        FfiConverterBool.write(value.isTransparent, into: &buf)
+        FfiConverterUInt32.write(value.vertexCount, into: &buf)
+        FfiConverterUInt32.write(value.triangleCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBatchedMeshData_lift(_ buf: RustBuffer) throws -> BatchedMeshData {
+    return try FfiConverterTypeBatchedMeshData.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBatchedMeshData_lower(_ value: BatchedMeshData) -> RustBuffer {
+    return FfiConverterTypeBatchedMeshData.lower(value)
 }
 
 
@@ -1306,7 +1452,7 @@ public func FfiConverterTypeLoadResult_lower(_ value: LoadResult) -> RustBuffer 
 
 
 /**
- * Mesh data for rendering
+ * Mesh data for rendering (per-entity, use for individual mesh access)
  */
 public struct MeshData {
     public var entityId: UInt64
@@ -2392,6 +2538,31 @@ fileprivate struct FfiConverterSequenceFloat: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeBatchedMeshData: FfiConverterRustBuffer {
+    typealias SwiftType = [BatchedMeshData]
+
+    public static func write(_ value: [BatchedMeshData], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeBatchedMeshData.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [BatchedMeshData] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [BatchedMeshData]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeBatchedMeshData.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeEntityInfo: FfiConverterRustBuffer {
     typealias SwiftType = [EntityInfo]
 
@@ -2561,6 +2732,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_ifc_lite_ffi_checksum_method_ifcscene_clear_selection() != 14958) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ifc_lite_ffi_checksum_method_ifcscene_get_batched_meshes() != 23940) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ifc_lite_ffi_checksum_method_ifcscene_get_bounds() != 58716) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2576,7 +2750,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_ifc_lite_ffi_checksum_method_ifcscene_get_mesh() != 42338) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ifc_lite_ffi_checksum_method_ifcscene_get_meshes() != 20456) {
+    if (uniffi_ifc_lite_ffi_checksum_method_ifcscene_get_meshes() != 37368) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ifc_lite_ffi_checksum_method_ifcscene_get_properties() != 57446) {

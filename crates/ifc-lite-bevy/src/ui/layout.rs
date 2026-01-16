@@ -1,10 +1,10 @@
 //! Main UI layout - toolbar, panels, viewport
 
+use super::styles::{UiColors, UiSizes};
 use bevy::prelude::*;
 use bevy::ui::{
     AlignItems, BackgroundColor, FlexDirection, Node, Overflow, ScrollPosition, UiRect, Val,
 };
-use super::styles::{UiColors, UiSizes};
 
 pub struct LayoutPlugin;
 

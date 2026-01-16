@@ -4,8 +4,12 @@ import IfcLite
 
 #if os(macOS)
 typealias ViewRepresentable = NSViewRepresentable
+typealias PlatformColor = NSColor
+typealias PlatformTapGesture = NSClickGestureRecognizer
 #else
 typealias ViewRepresentable = UIViewRepresentable
+typealias PlatformColor = UIColor
+typealias PlatformTapGesture = UITapGestureRecognizer
 #endif
 
 /// SceneKit-based 3D view for rendering IFC meshes
@@ -24,6 +28,7 @@ struct SceneKitView: ViewRepresentable {
     }
 
     func updateNSView(_ scnView: SCNView, context: Context) {
+        // Use per-entity meshes (SceneKit doesn't support vertex colors well with Metal shaders)
         context.coordinator.updateScene(scnView: scnView, meshes: viewModel.meshes, bounds: viewModel.bounds)
         context.coordinator.updateSelection(scnView: scnView, selectedIds: viewModel.selectedIds)
         context.coordinator.updateVisibility(scnView: scnView, hiddenIds: viewModel.hiddenIds)
@@ -44,6 +49,7 @@ struct SceneKitView: ViewRepresentable {
     }
 
     func updateUIView(_ scnView: SCNView, context: Context) {
+        // Use per-entity meshes (SceneKit doesn't support vertex colors well with Metal shaders)
         context.coordinator.updateScene(scnView: scnView, meshes: viewModel.meshes, bounds: viewModel.bounds)
         context.coordinator.updateSelection(scnView: scnView, selectedIds: viewModel.selectedIds)
         context.coordinator.updateVisibility(scnView: scnView, hiddenIds: viewModel.hiddenIds)
@@ -60,7 +66,7 @@ struct SceneKitView: ViewRepresentable {
 
     private func setupSceneView(_ scnView: SCNView, context: Context) {
         scnView.scene = SCNScene()
-        scnView.backgroundColor = NSColor(white: 0.1, alpha: 1.0)
+        scnView.backgroundColor = PlatformColor(white: 0.1, alpha: 1.0)
         scnView.allowsCameraControl = true
         scnView.autoenablesDefaultLighting = false
         scnView.showsStatistics = false
@@ -69,14 +75,14 @@ struct SceneKitView: ViewRepresentable {
         let ambientLight = SCNNode()
         ambientLight.light = SCNLight()
         ambientLight.light?.type = .ambient
-        ambientLight.light?.color = NSColor(white: 0.4, alpha: 1.0)
+        ambientLight.light?.color = PlatformColor(white: 0.4, alpha: 1.0)
         scnView.scene?.rootNode.addChildNode(ambientLight)
 
         // Add directional light (sun)
         let sunLight = SCNNode()
         sunLight.light = SCNLight()
         sunLight.light?.type = .directional
-        sunLight.light?.color = NSColor(white: 0.8, alpha: 1.0)
+        sunLight.light?.color = PlatformColor(white: 0.8, alpha: 1.0)
         sunLight.light?.castsShadow = true
         sunLight.eulerAngles = SCNVector3(-Float.pi / 4, Float.pi / 4, 0)
         scnView.scene?.rootNode.addChildNode(sunLight)
@@ -96,7 +102,7 @@ struct SceneKitView: ViewRepresentable {
         scnView.scene?.rootNode.addChildNode(gridNode)
 
         // Set delegate for tap handling
-        let tapGesture = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        let tapGesture = PlatformTapGesture(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         scnView.addGestureRecognizer(tapGesture)
 
         context.coordinator.sceneView = scnView
@@ -110,7 +116,7 @@ struct SceneKitView: ViewRepresentable {
         for i in stride(from: -gridSize, through: gridSize, by: gridStep) {
             // X-axis lines
             let xGeometry = SCNCylinder(radius: 0.02, height: CGFloat(gridSize * 2))
-            xGeometry.firstMaterial?.diffuse.contents = NSColor(white: 0.3, alpha: 1.0)
+            xGeometry.firstMaterial?.diffuse.contents = PlatformColor(white: 0.3, alpha: 1.0)
             let xNode = SCNNode(geometry: xGeometry)
             xNode.eulerAngles = SCNVector3(0, 0, Float.pi / 2)
             xNode.position = SCNVector3(0, 0, i)
@@ -118,7 +124,7 @@ struct SceneKitView: ViewRepresentable {
 
             // Z-axis lines
             let zGeometry = SCNCylinder(radius: 0.02, height: CGFloat(gridSize * 2))
-            zGeometry.firstMaterial?.diffuse.contents = NSColor(white: 0.3, alpha: 1.0)
+            zGeometry.firstMaterial?.diffuse.contents = PlatformColor(white: 0.3, alpha: 1.0)
             let zNode = SCNNode(geometry: zGeometry)
             zNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
             zNode.position = SCNVector3(i, 0, 0)
@@ -168,9 +174,9 @@ struct SceneKitView: ViewRepresentable {
             for (id, node) in meshNodes {
                 if selectedIds.contains(id) {
                     // Highlight selected
-                    node.geometry?.firstMaterial?.emission.contents = NSColor.orange.withAlphaComponent(0.3)
+                    node.geometry?.firstMaterial?.emission.contents = PlatformColor.orange.withAlphaComponent(0.3)
                 } else {
-                    node.geometry?.firstMaterial?.emission.contents = NSColor.black
+                    node.geometry?.firstMaterial?.emission.contents = PlatformColor.black
                 }
             }
         }
@@ -240,7 +246,7 @@ struct SceneKitView: ViewRepresentable {
             // Create material
             let material = SCNMaterial()
             if mesh.color.count >= 4 {
-                material.diffuse.contents = NSColor(
+                material.diffuse.contents = PlatformColor(
                     red: CGFloat(mesh.color[0]),
                     green: CGFloat(mesh.color[1]),
                     blue: CGFloat(mesh.color[2]),
@@ -251,7 +257,7 @@ struct SceneKitView: ViewRepresentable {
                     material.blendMode = .alpha
                 }
             } else {
-                material.diffuse.contents = NSColor.gray
+                material.diffuse.contents = PlatformColor.gray
             }
             material.lightingModel = .blinn
             material.isDoubleSided = true
@@ -262,7 +268,11 @@ struct SceneKitView: ViewRepresentable {
 
             // IFC uses Z-up, SceneKit uses Y-up. Rotate to correct orientation.
             // This rotates -90 degrees around X axis to convert Z-up to Y-up
+            #if os(macOS)
             node.eulerAngles.x = -CGFloat.pi / 2
+            #else
+            node.eulerAngles.x = -Float.pi / 2
+            #endif
 
             return node
         }
@@ -329,7 +339,7 @@ struct SceneKitView: ViewRepresentable {
             }
         }
 
-        @objc func handleTap(_ gesture: NSClickGestureRecognizer) {
+        @objc func handleTap(_ gesture: PlatformTapGesture) {
             guard let scnView = sceneView else { return }
             let location = gesture.location(in: scnView)
 

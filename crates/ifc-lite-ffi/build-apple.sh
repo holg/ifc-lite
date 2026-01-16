@@ -23,6 +23,14 @@ rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR/headers"
 mkdir -p "$OUTPUT_DIR/swift"
 
+# Generate UniFFI bindings (Swift + C header)
+echo "🔄 Generating UniFFI bindings..."
+cargo build -p "$CRATE_NAME" --release 2>&1 | grep -E "(Compiling|Finished|error)" || true
+cargo run -p "$CRATE_NAME" --features cli --bin uniffi-bindgen -- \
+    generate --library "target/release/$LIB_NAME.dylib" \
+    --language swift \
+    --out-dir "$SCRIPT_DIR/bindings" 2>&1 | grep -v "Warning:" || true
+
 # Copy headers and Swift bindings
 echo "📋 Copying headers and Swift bindings..."
 cp "$SCRIPT_DIR/bindings/ifc_lite_ffiFFI.h" "$OUTPUT_DIR/headers/"

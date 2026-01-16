@@ -57,7 +57,7 @@ pub struct EntityInfo {
     pub storey_elevation: Option<f32>,
 }
 
-/// Mesh data for rendering
+/// Mesh data for rendering (per-entity, use for individual mesh access)
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MeshData {
     pub entity_id: u64,
@@ -68,6 +68,23 @@ pub struct MeshData {
     pub indices: Vec<u32>,
     pub color: Vec<f32>,     // RGBA
     pub transform: Vec<f32>, // 4x4 matrix
+}
+
+/// Batched mesh data for efficient rendering
+/// All vertices are pre-transformed to world space and combined into single buffers.
+/// Use this for maximum rendering performance (2 draw calls instead of N).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BatchedMeshData {
+    /// Interleaved vertex data: [x, y, z, nx, ny, nz, r, g, b, a, ...] (10 floats per vertex)
+    pub vertices: Vec<f32>,
+    /// Triangle indices
+    pub indices: Vec<u32>,
+    /// Whether this batch contains transparent geometry
+    pub is_transparent: bool,
+    /// Number of vertices
+    pub vertex_count: u32,
+    /// Number of triangles
+    pub triangle_count: u32,
 }
 
 /// Scene bounds (AABB)
@@ -301,7 +318,7 @@ impl IfcScene {
         self.data.read().bounds.clone()
     }
 
-    /// Get all meshes
+    /// Get all meshes (per-entity, slower rendering)
     pub fn get_meshes(&self) -> Vec<MeshData> {
         self.data.read().meshes.clone()
     }
@@ -314,6 +331,119 @@ impl IfcScene {
             .iter()
             .find(|m| m.entity_id == entity_id)
             .cloned()
+    }
+
+    /// Get batched meshes for efficient rendering
+    /// Returns 2 batches: opaque geometry and transparent geometry.
+    /// All vertices are pre-transformed to world space with vertex colors.
+    /// Use this for maximum rendering performance.
+    pub fn get_batched_meshes(&self) -> Vec<BatchedMeshData> {
+        let data = self.data.read();
+        let meshes = &data.meshes;
+
+        if meshes.is_empty() {
+            return Vec::new();
+        }
+
+        // Separate opaque and transparent
+        let mut opaque_vertices: Vec<f32> = Vec::new();
+        let mut opaque_indices: Vec<u32> = Vec::new();
+        let mut transparent_vertices: Vec<f32> = Vec::new();
+        let mut transparent_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let is_transparent = mesh.color.len() >= 4 && mesh.color[3] < 1.0;
+            let (vertices, indices) = if is_transparent {
+                (&mut transparent_vertices, &mut transparent_indices)
+            } else {
+                (&mut opaque_vertices, &mut opaque_indices)
+            };
+
+            let vertex_offset = (vertices.len() / 10) as u32;
+            let vertex_count = mesh.positions.len() / 3;
+
+            // Get transform matrix
+            let transform = if mesh.transform.len() == 16 {
+                nalgebra::Matrix4::from_column_slice(&mesh.transform)
+            } else {
+                nalgebra::Matrix4::identity()
+            };
+
+            // Get color (RGBA)
+            let color = if mesh.color.len() >= 4 {
+                [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]]
+            } else if mesh.color.len() >= 3 {
+                [mesh.color[0], mesh.color[1], mesh.color[2], 1.0]
+            } else {
+                [0.8, 0.8, 0.8, 1.0]
+            };
+
+            // Add vertices with transform applied
+            for i in 0..vertex_count {
+                let idx = i * 3;
+
+                // Position (IFC Z-up to Y-up)
+                let local_pos = nalgebra::Point3::new(
+                    mesh.positions[idx],
+                    mesh.positions.get(idx + 2).copied().unwrap_or(0.0), // Z -> Y
+                    -mesh.positions.get(idx + 1).copied().unwrap_or(0.0), // -Y -> Z
+                );
+                let world_pos = transform.transform_point(&local_pos);
+
+                // Normal (IFC Z-up to Y-up)
+                let local_normal = if mesh.normals.len() > idx + 2 {
+                    nalgebra::Vector3::new(
+                        mesh.normals[idx],
+                        mesh.normals[idx + 2],  // Z -> Y
+                        -mesh.normals[idx + 1], // -Y -> Z
+                    )
+                } else {
+                    nalgebra::Vector3::new(0.0, 1.0, 0.0)
+                };
+                let world_normal = transform.fixed_view::<3, 3>(0, 0).into_owned() * local_normal;
+
+                // Interleaved: [x, y, z, nx, ny, nz, r, g, b, a]
+                vertices.push(world_pos.x);
+                vertices.push(world_pos.y);
+                vertices.push(world_pos.z);
+                vertices.push(world_normal.x);
+                vertices.push(world_normal.y);
+                vertices.push(world_normal.z);
+                vertices.push(color[0]);
+                vertices.push(color[1]);
+                vertices.push(color[2]);
+                vertices.push(color[3]);
+            }
+
+            // Add indices with offset
+            for idx in &mesh.indices {
+                indices.push(idx + vertex_offset);
+            }
+        }
+
+        let mut result = Vec::new();
+
+        if !opaque_vertices.is_empty() {
+            result.push(BatchedMeshData {
+                vertex_count: (opaque_vertices.len() / 10) as u32,
+                triangle_count: (opaque_indices.len() / 3) as u32,
+                vertices: opaque_vertices,
+                indices: opaque_indices,
+                is_transparent: false,
+            });
+        }
+
+        if !transparent_vertices.is_empty() {
+            result.push(BatchedMeshData {
+                vertex_count: (transparent_vertices.len() / 10) as u32,
+                triangle_count: (transparent_indices.len() / 3) as u32,
+                vertices: transparent_vertices,
+                indices: transparent_indices,
+                is_transparent: true,
+            });
+        }
+
+        result
     }
 
     /// Get properties for entity
@@ -1343,8 +1473,8 @@ mod tests {
 
     #[test]
     fn test_spatial_tree() {
-        let content =
-            std::fs::read_to_string("../../tests/test.ifc").expect("Failed to read test.ifc");
+        let content = std::fs::read_to_string("../../tests/models/test.ifc")
+            .expect("Failed to read test.ifc");
 
         let (meshes, entities, spatial_tree, bounds) =
             process_ifc_content(&content).expect("Failed to process IFC");
@@ -1372,7 +1502,7 @@ mod tests {
 
     #[test]
     fn test_spatial_tree_duplex() {
-        let content = std::fs::read_to_string("../../tests/ifc/ara3d-format-shootout/duplex.ifc")
+        let content = std::fs::read_to_string("../../tests/models/ara3d/duplex.ifc")
             .expect("Failed to read duplex.ifc");
 
         println!("File size: {} bytes", content.len());

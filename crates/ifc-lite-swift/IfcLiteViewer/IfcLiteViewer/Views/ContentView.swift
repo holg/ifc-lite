@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import IfcLite
 
 struct ContentView: View {
@@ -49,6 +50,20 @@ struct ContentView: View {
             }
         } message: {
             Text(viewModel.loadError ?? "Unknown error")
+        }
+        .fileImporter(
+            isPresented: $viewModel.showingFileImporter,
+            allowedContentTypes: [UTType(filenameExtension: "ifc") ?? .data],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    viewModel.loadFile(url: url)
+                }
+            case .failure(let error):
+                viewModel.loadError = error.localizedDescription
+            }
         }
     }
 

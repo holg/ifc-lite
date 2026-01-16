@@ -3,7 +3,13 @@
 use crate::mesh::IfcMesh;
 use crate::{EntityInfo, IfcSceneData};
 use bevy::prelude::*;
-use bevy::tasks::{IoTaskPool, Task};
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(target_os = "ios"),
+    not(target_os = "macos")
+))]
+use bevy::tasks::IoTaskPool;
+use bevy::tasks::Task;
 use ifc_lite_core::{EntityDecoder, EntityScanner};
 use ifc_lite_geometry::{GeometryRouter, Mesh};
 use std::path::PathBuf;
@@ -54,7 +60,11 @@ pub struct IfcFileLoadedEvent {
 }
 
 /// System to handle request to open file dialog (spawns async task)
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(target_os = "ios"),
+    not(target_os = "macos")
+))]
 fn handle_open_dialog_request(
     mut requests: MessageReader<OpenFileDialogRequest>,
     mut state: ResMut<FileDialogState>,
@@ -85,12 +95,13 @@ fn handle_open_dialog_request(
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+/// Stub for platforms that don't support rfd (WASM, iOS, macOS)
+#[cfg(any(target_arch = "wasm32", target_os = "ios", target_os = "macos"))]
 fn handle_open_dialog_request(
     mut _requests: MessageReader<OpenFileDialogRequest>,
     mut _state: ResMut<FileDialogState>,
 ) {
-    // WASM uses different file handling
+    // File dialog handled by native UI on these platforms
 }
 
 /// System to poll async file dialog result
@@ -162,7 +173,7 @@ fn handle_file_drop(
         if let bevy::window::FileDragAndDrop::DroppedFile { path_buf, .. } = event {
             // Check if it's an IFC file
             if let Some(ext) = path_buf.extension() {
-                if ext.to_ascii_lowercase() == "ifc" {
+                if ext.eq_ignore_ascii_case("ifc") {
                     crate::log_info(&format!("[Loader] File dropped: {:?}", path_buf));
                     load_events.write(LoadIfcFileEvent {
                         path: path_buf.clone(),
@@ -244,7 +255,7 @@ fn load_ifc_file(
             id: id as u64,
             entity_type: type_name,
             name,
-            storey: None,         // TODO: extract from spatial structure
+            storey: None, // TODO: extract from spatial structure
             storey_elevation: None,
         });
     }
@@ -273,4 +284,3 @@ fn mesh_to_ifc_mesh(id: u64, entity_type: &str, name: Option<&str>, mesh: &Mesh)
         name: name.map(|s| s.to_string()),
     }
 }
-

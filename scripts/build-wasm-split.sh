@@ -260,6 +260,9 @@ if [[ "$1" == "deploy" ]]; then
     ACTION="deploy"
 elif [[ "$1" == "serve" ]]; then
     ACTION="serve"
+elif [[ "$1" == "serve-only" ]]; then
+    # Just serve without rebuilding
+    ACTION="serve-only"
 elif [[ "$1" == "force" ]]; then
     FORCE_REBUILD=true
     ACTION="build"
@@ -273,12 +276,13 @@ elif [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
     echo "Usage: $0 [command]"
     echo ""
     echo "Commands:"
-    echo "  (none)    Build WASM bundles (incremental - skips unchanged)"
-    echo "  force     Force rebuild all bundles (ignore cache)"
-    echo "  deploy    Build and deploy via rsync to configured target"
-    echo "  serve     Build and start local development server"
-    echo "  clean     Remove build cache and dist directory"
-    echo "  --help    Show this help"
+    echo "  (none)      Build WASM bundles (incremental - skips unchanged)"
+    echo "  force       Force rebuild all bundles (ignore cache)"
+    echo "  deploy      Build and deploy via rsync to configured target"
+    echo "  serve       Build and start local development server"
+    echo "  serve-only  Start local server without rebuilding"
+    echo "  clean       Remove build cache and dist directory"
+    echo "  --help      Show this help"
     echo ""
     echo "Configuration: $CONFIG_FILE"
     echo ""
@@ -286,6 +290,29 @@ elif [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
     echo "Output:  $DIST_DIR"
     if [[ -n "$DEPLOY_TARGET" ]]; then
         echo "Deploy:  $DEPLOY_TARGET"
+    fi
+    exit 0
+fi
+
+# serve-only: skip build process entirely
+if [[ "$ACTION" == "serve-only" ]]; then
+    echo "=== Starting local server on port $LOCAL_PORT (no rebuild) ==="
+    echo ""
+    if [[ ! -d "$DIST_DIR" ]]; then
+        echo "ERROR: Dist directory not found: $DIST_DIR"
+        echo "Run '$0' first to build."
+        exit 1
+    fi
+    if [[ -n "$SERVER_CRATE" ]]; then
+        echo "Running: cargo run -p $SERVER_CRATE -- -p $LOCAL_PORT --dist $DIST_DIR"
+        echo "Open: http://localhost:$LOCAL_PORT"
+        echo ""
+        cargo run -p "$SERVER_CRATE" -- -p "$LOCAL_PORT" --dist "$DIST_DIR"
+    else
+        echo "Running: python3 -m http.server $LOCAL_PORT -d $DIST_DIR"
+        echo "Open: http://localhost:$LOCAL_PORT"
+        echo ""
+        python3 -m http.server "$LOCAL_PORT" -d "$DIST_DIR"
     fi
     exit 0
 fi
@@ -906,20 +933,21 @@ SED_INPLACE=(-i '')
 [[ "$(uname)" != "Darwin" ]] && SED_INPLACE=(-i)
 
 if [[ "$BUILD_BEVY" == "true" ]] && [[ -n "$BEVY_LOADER_HASH" ]]; then
-    # Handle both src="bevy-loader.js" and src="bevy-loader.js">
-    sed "${SED_INPLACE[@]}" "s|bevy-loader.js\"|bevy-loader-${BEVY_LOADER_HASH}.js\"|g" "$DIST_DIR/index.html"
-    sed "${SED_INPLACE[@]}" "s|bevy-loader.js\">|bevy-loader-${BEVY_LOADER_HASH}.js\">|g" "$DIST_DIR/index.html"
-    sed "${SED_INPLACE[@]}" "s|bevy-loader.js?v=[0-9]*\"|bevy-loader-${BEVY_LOADER_HASH}.js\"|g" "$DIST_DIR/index.html"
+    # Handle all cases: unhashed, already hashed with old hash, with query string
+    # Pattern matches: bevy-loader.js, bevy-loader-XXXX.js, bevy-loader.js?v=123
+    sed "${SED_INPLACE[@]}" "s|bevy-loader\(-[a-f0-9]*\)\{0,1\}\.js\(\?v=[0-9]*\)\{0,1\}\"|bevy-loader-${BEVY_LOADER_HASH}.js\"|g" "$DIST_DIR/index.html"
+    sed "${SED_INPLACE[@]}" "s|bevy-loader\(-[a-f0-9]*\)\{0,1\}\.js\(\?v=[0-9]*\)\{0,1\}\">|bevy-loader-${BEVY_LOADER_HASH}.js\">|g" "$DIST_DIR/index.html"
+    echo "  bevy-loader -> bevy-loader-${BEVY_LOADER_HASH}.js"
 fi
 
 if [[ "$BUILD_TYPST" == "true" ]] && [[ -n "$TYPST_LOADER_HASH" ]]; then
-    sed "${SED_INPLACE[@]}" "s|typst-loader.js\"|typst-loader-${TYPST_LOADER_HASH}.js\"|g" "$DIST_DIR/index.html"
-    sed "${SED_INPLACE[@]}" "s|typst-loader.js?v=[0-9]*\"|typst-loader-${TYPST_LOADER_HASH}.js\"|g" "$DIST_DIR/index.html"
+    sed "${SED_INPLACE[@]}" "s|typst-loader\(-[a-f0-9]*\)\{0,1\}\.js\(\?v=[0-9]*\)\{0,1\}\"|typst-loader-${TYPST_LOADER_HASH}.js\"|g" "$DIST_DIR/index.html"
+    echo "  typst-loader -> typst-loader-${TYPST_LOADER_HASH}.js"
 fi
 
 if [[ "$BUILD_GMAPS" == "true" ]] && [[ -n "$GMAPS_LOADER_HASH" ]]; then
-    sed "${SED_INPLACE[@]}" "s|gmaps-loader.js\"|gmaps-loader-${GMAPS_LOADER_HASH}.js\"|g" "$DIST_DIR/index.html"
-    sed "${SED_INPLACE[@]}" "s|gmaps-loader.js?v=[0-9]*\"|gmaps-loader-${GMAPS_LOADER_HASH}.js\"|g" "$DIST_DIR/index.html"
+    sed "${SED_INPLACE[@]}" "s|gmaps-loader\(-[a-f0-9]*\)\{0,1\}\.js\(\?v=[0-9]*\)\{0,1\}\"|gmaps-loader-${GMAPS_LOADER_HASH}.js\"|g" "$DIST_DIR/index.html"
+    echo "  gmaps-loader -> gmaps-loader-${GMAPS_LOADER_HASH}.js"
 fi
 
 echo "  Updated loader references in index.html"

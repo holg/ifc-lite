@@ -279,10 +279,9 @@ impl<'a> EntityScanner<'a> {
                 continue;
             }
 
-            // Find the end of the line (semicolon) using SIMD
-            let line_content = &self.bytes[line_start..];
-            let end_offset = memchr::memchr(b';', line_content)?;
-            let line_end = line_start + end_offset + 1;
+            // Find the end of the entity (semicolon outside of quoted strings)
+            // Must skip over quoted strings which may contain semicolons
+            let line_end = self.find_entity_end(line_start)?;
 
             // Parse entity ID (inline for speed)
             let id_start = line_start + 1;
@@ -347,6 +346,57 @@ impl<'a> EntityScanner<'a> {
             result = result.wrapping_mul(10).wrapping_add(digit as u32);
         }
         Some(result)
+    }
+
+    /// Find the end of an entity, accounting for quoted strings that may contain semicolons
+    /// Returns position after the semicolon
+    #[inline]
+    fn find_entity_end(&self, start: usize) -> Option<usize> {
+        let mut pos = start;
+        let len = self.bytes.len();
+
+        while pos < len {
+            let b = self.bytes[pos];
+
+            if b == b'\'' {
+                // Start of single-quoted string - skip to end
+                pos += 1;
+                while pos < len {
+                    if self.bytes[pos] == b'\'' {
+                        // Check for escaped quote ('')
+                        if pos + 1 < len && self.bytes[pos + 1] == b'\'' {
+                            pos += 2; // Skip escaped quote
+                            continue;
+                        }
+                        break; // End of string
+                    }
+                    pos += 1;
+                }
+                pos += 1; // Skip closing quote
+            } else if b == b'"' {
+                // Start of double-quoted string - skip to end
+                pos += 1;
+                while pos < len {
+                    if self.bytes[pos] == b'"' {
+                        // Check for escaped quote ("")
+                        if pos + 1 < len && self.bytes[pos + 1] == b'"' {
+                            pos += 2; // Skip escaped quote
+                            continue;
+                        }
+                        break; // End of string
+                    }
+                    pos += 1;
+                }
+                pos += 1; // Skip closing quote
+            } else if b == b';' {
+                // Found the terminating semicolon
+                return Some(pos + 1);
+            } else {
+                pos += 1;
+            }
+        }
+
+        None // No semicolon found
     }
 
     /// Find all entities of a specific type

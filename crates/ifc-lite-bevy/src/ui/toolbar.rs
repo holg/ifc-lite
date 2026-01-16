@@ -3,8 +3,8 @@
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 use bevy::ui::{
-    AlignItems, BackgroundColor, BorderRadius, Interaction, JustifyContent, Node, UiRect, Val,
-    widget::Button,
+    widget::Button, AlignItems, BackgroundColor, BorderRadius, Interaction, JustifyContent, Node,
+    UiRect, Val,
 };
 
 use super::layout::ToolbarContainer;
@@ -35,10 +35,7 @@ pub enum ButtonAction {
     ToggleSection,
 }
 
-fn setup_toolbar(
-    mut commands: Commands,
-    toolbar_query: Query<Entity, With<ToolbarContainer>>,
-) {
+fn setup_toolbar(mut commands: Commands, toolbar_query: Query<Entity, With<ToolbarContainer>>) {
     let Ok(toolbar_entity) = toolbar_query.single() else {
         return;
     };
@@ -120,13 +117,22 @@ fn spawn_separator(parent: &mut ChildSpawnerCommands) {
 }
 
 fn button_interaction(
-    mut query: Query<
-        (&Interaction, &mut BackgroundColor, &ToolbarButton),
-        Changed<Interaction>,
-    >,
+    mut query: Query<(&Interaction, &mut BackgroundColor, &ToolbarButton), Changed<Interaction>>,
     mut ui_state: ResMut<super::UiState>,
-    mut left_panel: Query<&mut Visibility, (With<super::layout::LeftPanel>, Without<super::layout::RightPanel>)>,
-    mut right_panel: Query<&mut Visibility, (With<super::layout::RightPanel>, Without<super::layout::LeftPanel>)>,
+    mut left_panel: Query<
+        &mut Visibility,
+        (
+            With<super::layout::LeftPanel>,
+            Without<super::layout::RightPanel>,
+        ),
+    >,
+    mut right_panel: Query<
+        &mut Visibility,
+        (
+            With<super::layout::RightPanel>,
+            Without<super::layout::LeftPanel>,
+        ),
+    >,
     mut open_dialog_events: MessageWriter<crate::loader::OpenFileDialogRequest>,
     mut camera_controller: ResMut<crate::camera::CameraController>,
     scene_data: Res<crate::IfcSceneData>,

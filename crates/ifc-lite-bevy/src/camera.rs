@@ -304,21 +304,25 @@ fn setup_camera(mut commands: Commands, controller: Res<CameraController>) {
 }
 
 /// Handle mouse input for camera control
+#[allow(unused_variables)]
 fn camera_input_system(
     mouse_button: Res<ButtonInput<MouseButton>>,
     mut mouse_motion: MessageReader<MouseMotion>,
     mut mouse_wheel: MessageReader<MouseWheel>,
     mut controller: ResMut<CameraController>,
     windows: Query<&Window>,
-    // Check if mouse is over any UI element with Interaction
-    ui_interactions: Query<&Interaction, With<Node>>,
+    // Check if mouse is over any UI element with Interaction (only when bevy-ui feature is enabled)
+    #[cfg(feature = "bevy-ui")] ui_interactions: Query<&Interaction, With<Node>>,
 ) {
     let Ok(window) = windows.single() else { return };
 
     // Check if mouse is over any UI element (hovered or pressed)
-    let mouse_over_ui = ui_interactions.iter().any(|interaction| {
-        matches!(interaction, Interaction::Hovered | Interaction::Pressed)
-    });
+    #[cfg(feature = "bevy-ui")]
+    let mouse_over_ui = ui_interactions
+        .iter()
+        .any(|interaction| matches!(interaction, Interaction::Hovered | Interaction::Pressed));
+    #[cfg(not(feature = "bevy-ui"))]
+    let mouse_over_ui = false;
 
     // Handle mouse button state - only start drag if not over UI
     if mouse_button.just_pressed(MouseButton::Left) && !mouse_over_ui {

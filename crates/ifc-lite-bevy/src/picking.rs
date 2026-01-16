@@ -100,7 +100,7 @@ impl Default for PickingSettings {
 }
 
 /// Picking system - handles click selection
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, unused_variables)]
 fn picking_system(
     mouse_button: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -110,7 +110,7 @@ fn picking_system(
     meshes: Res<Assets<Mesh>>,
     mut selection: ResMut<SelectionState>,
     settings: Res<PickingSettings>,
-    ui_interactions: Query<&Interaction, With<bevy::ui::Node>>,
+    #[cfg(feature = "bevy-ui")] ui_interactions: Query<&Interaction, With<bevy::ui::Node>>,
 ) {
     if !settings.enabled {
         return;
@@ -120,10 +120,12 @@ fn picking_system(
         return;
     }
 
-    // Don't pick if clicking on UI elements
-    let mouse_over_ui = ui_interactions.iter().any(|interaction| {
-        matches!(interaction, Interaction::Hovered | Interaction::Pressed)
-    });
+    // Don't pick if clicking on UI elements (only when bevy-ui feature is enabled)
+    #[cfg(feature = "bevy-ui")]
+    let mouse_over_ui = ui_interactions
+        .iter()
+        .any(|interaction| matches!(interaction, Interaction::Hovered | Interaction::Pressed));
+    #[cfg(feature = "bevy-ui")]
     if mouse_over_ui {
         return;
     }

@@ -282,6 +282,11 @@ void uniffi_ifc_lite_ffi_fn_method_ifcscene_clear(void*_Nonnull ptr, RustCallSta
 void uniffi_ifc_lite_ffi_fn_method_ifcscene_clear_selection(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_IFCSCENE_GET_BATCHED_MESHES
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_IFCSCENE_GET_BATCHED_MESHES
+RustBuffer uniffi_ifc_lite_ffi_fn_method_ifcscene_get_batched_meshes(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_IFCSCENE_GET_BOUNDS
 #define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_IFCSCENE_GET_BOUNDS
 RustBuffer uniffi_ifc_lite_ffi_fn_method_ifcscene_get_bounds(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
@@ -741,6 +746,12 @@ uint16_t uniffi_ifc_lite_ffi_checksum_method_ifcscene_clear(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_IFCSCENE_CLEAR_SELECTION
 #define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_IFCSCENE_CLEAR_SELECTION
 uint16_t uniffi_ifc_lite_ffi_checksum_method_ifcscene_clear_selection(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_IFCSCENE_GET_BATCHED_MESHES
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_IFCSCENE_GET_BATCHED_MESHES
+uint16_t uniffi_ifc_lite_ffi_checksum_method_ifcscene_get_batched_meshes(void
     
 );
 #endif

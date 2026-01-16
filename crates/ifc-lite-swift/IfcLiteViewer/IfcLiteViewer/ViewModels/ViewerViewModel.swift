@@ -15,6 +15,7 @@ class ViewerViewModel: ObservableObject {
     // MARK: - Data
     @Published var entities: [EntityInfo] = []
     @Published var meshes: [MeshData] = []
+    @Published var batchedMeshes: [BatchedMeshData] = []  // Batched geometry for fast rendering
     @Published var bounds: SceneBounds?
     @Published var spatialTree: SpatialNode?
 
@@ -69,6 +70,9 @@ class ViewerViewModel: ObservableObject {
 
     // MARK: - File Loading
 
+    /// Controls whether the file importer sheet is shown (iOS)
+    @Published var showingFileImporter = false
+
     func openFileDialog() {
         #if os(macOS)
         let panel = NSOpenPanel()
@@ -80,6 +84,9 @@ class ViewerViewModel: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url {
             loadFile(url: url)
         }
+        #else
+        // On iOS, trigger the file importer sheet
+        showingFileImporter = true
         #endif
     }
 
@@ -88,12 +95,26 @@ class ViewerViewModel: ObservableObject {
         loadError = nil
         fileName = url.lastPathComponent
 
+        // Start security-scoped access (needed for files from Files app on iOS)
+        let accessing = url.startAccessingSecurityScopedResource()
+
         Task {
+            defer {
+                if accessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
             do {
-                let result = try scene.loadFile(path: url.path)
+                // Read file data first (while we have access)
+                let data = try Data(contentsOf: url)
+                let result = try scene.loadBytes(data: data)
+                // Load batched meshes for efficient rendering
+                let batched = scene.getBatchedMeshes()
                 await MainActor.run {
                     self.entities = result.entities
                     self.meshes = result.meshes
+                    self.batchedMeshes = batched
                     self.bounds = result.bounds
                     self.spatialTree = result.spatialTree
                     self.loadTimeMs = result.loadTimeMs
@@ -136,9 +157,12 @@ class ViewerViewModel: ObservableObject {
         Task {
             do {
                 let result = try scene.loadBytes(data: data)
+                // Load batched meshes for efficient rendering
+                let batched = scene.getBatchedMeshes()
                 await MainActor.run {
                     self.entities = result.entities
                     self.meshes = result.meshes
+                    self.batchedMeshes = batched
                     self.bounds = result.bounds
                     self.spatialTree = result.spatialTree
                     self.loadTimeMs = result.loadTimeMs

@@ -2,17 +2,17 @@
 //!
 //! Pure Bevy UI implementation - works on both web and native.
 
-mod layout;
-mod toolbar;
 mod hierarchy;
+mod layout;
 mod properties;
 mod styles;
+mod toolbar;
 
-pub use layout::*;
-pub use toolbar::{ToolbarPlugin, ToolbarButton, ButtonAction};
 pub use hierarchy::*;
+pub use layout::*;
 pub use properties::*;
 pub use styles::*;
+pub use toolbar::{ButtonAction, ToolbarButton, ToolbarPlugin};
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -42,7 +42,10 @@ pub struct ScrollablePanel;
 /// Uses cursor position to check if within scrollable panel bounds
 fn ui_scroll_system(
     mut mouse_wheel: MessageReader<MouseWheel>,
-    mut scrollable_query: Query<(&mut ScrollPosition, &ComputedNode, &GlobalTransform), With<ScrollablePanel>>,
+    mut scrollable_query: Query<
+        (&mut ScrollPosition, &ComputedNode, &GlobalTransform),
+        With<ScrollablePanel>,
+    >,
     windows: Query<&Window>,
     mut logged: Local<bool>,
 ) {

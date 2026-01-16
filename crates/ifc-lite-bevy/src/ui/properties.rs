@@ -1,14 +1,14 @@
 //! Properties panel - shows details of selected entity
 
-use bevy::prelude::*;
-use bevy::ecs::hierarchy::ChildSpawnerCommands;
-use bevy::ui::{
-    AlignItems, BackgroundColor, BorderColor, BorderRadius, FlexDirection,
-    JustifyContent, Node, UiRect, Val, widget::Button,
-};
 use super::layout::RightPanel;
 use super::styles::{UiColors, UiSizes};
 use crate::{IfcSceneData, SelectionState};
+use bevy::ecs::hierarchy::ChildSpawnerCommands;
+use bevy::prelude::*;
+use bevy::ui::{
+    widget::Button, AlignItems, BackgroundColor, BorderColor, BorderRadius, FlexDirection,
+    JustifyContent, Node, UiRect, Val,
+};
 
 pub struct PropertiesPlugin;
 
@@ -27,10 +27,7 @@ pub struct PropertiesContent;
 #[derive(Component)]
 pub struct PropertyRow;
 
-fn setup_properties(
-    mut commands: Commands,
-    panel_query: Query<Entity, With<RightPanel>>,
-) {
+fn setup_properties(mut commands: Commands, panel_query: Query<Entity, With<RightPanel>>) {
     let Ok(panel_entity) = panel_query.single() else {
         return;
     };
@@ -132,7 +129,6 @@ fn update_properties(
                 spawn_action_button(content, "Hide");
                 spawn_action_button(content, "Isolate");
                 spawn_action_button(content, "Focus");
-
             } else {
                 spawn_no_selection(content);
             }
@@ -143,63 +139,67 @@ fn update_properties(
 }
 
 fn spawn_property_row(parent: &mut ChildSpawnerCommands, label: &str, value: &str) {
-    parent.spawn((
-        PropertyRow,
-        Node {
-            width: Val::Percent(100.0),
-            flex_direction: FlexDirection::Row,
-            justify_content: JustifyContent::SpaceBetween,
-            padding: UiRect::vertical(Val::Px(UiSizes::PADDING_SM)),
-            border: UiRect::bottom(Val::Px(1.0)),
-            ..default()
-        },
-        BorderColor::all(UiColors::BORDER),
-    )).with_children(|row: &mut ChildSpawnerCommands| {
-        // Label
-        row.spawn((
-            Text::new(label),
-            TextFont {
-                font_size: UiSizes::FONT_SIZE_SM,
+    parent
+        .spawn((
+            PropertyRow,
+            Node {
+                width: Val::Percent(100.0),
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::SpaceBetween,
+                padding: UiRect::vertical(Val::Px(UiSizes::PADDING_SM)),
+                border: UiRect::bottom(Val::Px(1.0)),
                 ..default()
             },
-            TextColor(UiColors::TEXT_SECONDARY),
-        ));
-        // Value
-        row.spawn((
-            Text::new(value),
-            TextFont {
-                font_size: UiSizes::FONT_SIZE_SM,
-                ..default()
-            },
-            TextColor(UiColors::TEXT_PRIMARY),
-        ));
-    });
+            BorderColor::all(UiColors::BORDER),
+        ))
+        .with_children(|row: &mut ChildSpawnerCommands| {
+            // Label
+            row.spawn((
+                Text::new(label),
+                TextFont {
+                    font_size: UiSizes::FONT_SIZE_SM,
+                    ..default()
+                },
+                TextColor(UiColors::TEXT_SECONDARY),
+            ));
+            // Value
+            row.spawn((
+                Text::new(value),
+                TextFont {
+                    font_size: UiSizes::FONT_SIZE_SM,
+                    ..default()
+                },
+                TextColor(UiColors::TEXT_PRIMARY),
+            ));
+        });
 }
 
 fn spawn_action_button(parent: &mut ChildSpawnerCommands, label: &str) {
-    parent.spawn((
-        PropertyRow, // Mark for cleanup
-        Button,
-        Node {
-            width: Val::Percent(100.0),
-            height: Val::Px(32.0),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            margin: UiRect::bottom(Val::Px(UiSizes::PADDING_SM)),
-            border_radius: BorderRadius::all(Val::Px(UiSizes::BORDER_RADIUS)),
-            ..default()
-        },
-        BackgroundColor(UiColors::BUTTON_BG),
-    )).with_children(|btn: &mut ChildSpawnerCommands| {
-        btn.spawn((
-            Text::new(label),
-            TextFont {
-                font_size: UiSizes::FONT_SIZE_SM,
+    parent
+        .spawn((
+            PropertyRow, // Mark for cleanup
+            Button,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Px(32.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                margin: UiRect::bottom(Val::Px(UiSizes::PADDING_SM)),
+                border_radius: BorderRadius::all(Val::Px(UiSizes::BORDER_RADIUS)),
                 ..default()
             },
-            TextColor(UiColors::TEXT_PRIMARY),
-        ));
-    });
+            BackgroundColor(UiColors::BUTTON_BG),
+        ))
+        .with_children(|btn: &mut ChildSpawnerCommands| {
+            btn.spawn((
+                Text::new(label),
+                TextFont {
+                    font_size: UiSizes::FONT_SIZE_SM,
+                    ..default()
+                },
+                TextColor(UiColors::TEXT_PRIMARY),
+            ));
+        });
 }
 
 fn spawn_no_selection(parent: &mut ChildSpawnerCommands) {
