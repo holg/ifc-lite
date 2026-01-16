@@ -96,7 +96,11 @@ pub fn extrude_profile_with_voids(
 
     let vertex_count = triangulation.points.len() * 2;
     let side_vertex_count = profile_with_holes.outer.len() * 2
-        + profile_with_holes.holes.iter().map(|h| h.len() * 2).sum::<usize>();
+        + profile_with_holes
+            .holes
+            .iter()
+            .map(|h| h.len() * 2)
+            .sum::<usize>();
     let partial_void_vertices = partial_void_count * 100; // Estimate
     let total_vertices = vertex_count + side_vertex_count + partial_void_vertices;
 
@@ -185,12 +189,7 @@ fn create_partial_void_geometry(void: &VoidInfo, total_depth: f64, mesh: &mut Me
 }
 
 /// Create side walls for a void opening between two depths
-fn create_void_side_walls(
-    contour: &[Point2<f64>],
-    z_start: f64,
-    z_end: f64,
-    mesh: &mut Mesh,
-) {
+fn create_void_side_walls(contour: &[Point2<f64>], z_start: f64, z_end: f64, mesh: &mut Mesh) {
     let base_index = mesh.vertex_count() as u32;
 
     for i in 0..contour.len() {

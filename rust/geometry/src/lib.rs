@@ -84,8 +84,8 @@ pub mod void_index;
 pub use nalgebra::{Point2, Point3, Vector2, Vector3};
 
 pub use bool2d::{
-    compute_signed_area, ensure_ccw, ensure_cw, is_valid_contour, point_in_contour,
-    subtract_2d, subtract_multiple_2d, union_contours,
+    compute_signed_area, ensure_ccw, ensure_cw, is_valid_contour, point_in_contour, subtract_2d,
+    subtract_multiple_2d, union_contours,
 };
 pub use csg::{calculate_normals, ClippingProcessor, Plane, Triangle};
 pub use error::{Error, Result};

@@ -283,6 +283,7 @@ impl ClippingProcessor {
         }
 
         // Group triangles by normal to find faces
+        #[allow(clippy::type_complexity)]
         let mut face_groups: FxHashMap<u64, Vec<(Point3<f64>, Point3<f64>, Point3<f64>)>> =
             FxHashMap::default();
         let normal_epsilon = 0.01; // Tolerance for normal comparison
@@ -358,6 +359,7 @@ impl ClippingProcessor {
             };
 
         // Count edges and store original vertices
+        #[allow(clippy::type_complexity)]
         let mut edge_count: FxHashMap<
             ((i64, i64, i64), (i64, i64, i64)),
             (usize, Point3<f64>, Point3<f64>),
@@ -369,11 +371,7 @@ impl ClippingProcessor {
             let q2 = quantize(v2);
 
             // Three edges per triangle
-            for (qa, qb, pa, pb) in [
-                (q0, q1, *v0, *v1),
-                (q1, q2, *v1, *v2),
-                (q2, q0, *v2, *v0),
-            ] {
+            for (qa, qb, pa, pb) in [(q0, q1, *v0, *v1), (q1, q2, *v1, *v2), (q2, q0, *v2, *v0)] {
                 let key = make_edge_key(qa, qb);
                 edge_count
                     .entry(key)
@@ -384,7 +382,7 @@ impl ClippingProcessor {
 
         // Collect boundary edges (count == 1)
         let mut boundary_edges: Vec<(Point3<f64>, Point3<f64>)> = Vec::new();
-        for (_, (count, pa, pb)) in &edge_count {
+        for (count, pa, pb) in edge_count.values() {
             if *count == 1 {
                 boundary_edges.push((*pa, *pb));
             }
@@ -396,13 +394,20 @@ impl ClippingProcessor {
         }
 
         // Build vertex adjacency map for boundary traversal
+        #[allow(clippy::type_complexity)]
         let mut adjacency: FxHashMap<(i64, i64, i64), Vec<(i64, i64, i64, Point3<f64>)>> =
             FxHashMap::default();
         for (pa, pb) in &boundary_edges {
             let qa = quantize(pa);
             let qb = quantize(pb);
-            adjacency.entry(qa).or_default().push((qb.0, qb.1, qb.2, *pb));
-            adjacency.entry(qb).or_default().push((qa.0, qa.1, qa.2, *pa));
+            adjacency
+                .entry(qa)
+                .or_default()
+                .push((qb.0, qb.1, qb.2, *pb));
+            adjacency
+                .entry(qb)
+                .or_default()
+                .push((qa.0, qa.1, qa.2, *pa));
         }
 
         // Build ordered contour by walking the boundary
@@ -418,6 +423,7 @@ impl ClippingProcessor {
             let mut current_q = start_q;
 
             // Walk around the boundary
+            #[allow(clippy::while_let_loop)]
             loop {
                 let neighbors = match adjacency.get(&current_q) {
                     Some(n) => n,
@@ -452,10 +458,7 @@ impl ClippingProcessor {
         let normal = calculate_polygon_normal(&contour);
 
         // Normalize the result
-        let normalized_normal = match normal.try_normalize(1e-10) {
-            Some(n) => n,
-            None => return None, // Degenerate polygon
-        };
+        let normalized_normal = normal.try_normalize(1e-10)?;
 
         Some((contour, normalized_normal))
     }

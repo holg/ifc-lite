@@ -10,11 +10,9 @@ use std::sync::Arc;
 
 /// Helper to extract entity refs from a list attribute
 fn get_ref_list(entity: &DecodedEntity, index: usize) -> Option<Vec<u32>> {
-    entity.get_list(index).map(|list| {
-        list.iter()
-            .filter_map(|v| v.as_entity_ref())
-            .collect()
-    })
+    entity
+        .get_list(index)
+        .map(|list| list.iter().filter_map(|v| v.as_entity_ref()).collect())
 }
 
 // Export UniFFI scaffolding

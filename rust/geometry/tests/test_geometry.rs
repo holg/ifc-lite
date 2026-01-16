@@ -5,8 +5,9 @@
 use std::fs;
 
 fn main() {
-    let content = fs::read_to_string("../../../tests/models/01_Snowdon_Towers_Sample_Structural(1).ifc")
-        .expect("Failed to read IFC file");
+    let content =
+        fs::read_to_string("../../../tests/models/01_Snowdon_Towers_Sample_Structural(1).ifc")
+            .expect("Failed to read IFC file");
 
     println!("File size: {} bytes", content.len());
 
@@ -29,7 +30,6 @@ fn main() {
                 if !matches!(ifc_type, ifc_lite_core::IfcType::Unknown(_)) {
                     let schema = ifc_lite_core::IfcSchema::new();
                     println!("  Has geometry: {}", schema.has_geometry(&ifc_type));
-                    println!("  Is building element: {}", ifc_type.is_building_element());
 
                     // Try to decode and process
                     let mut decoder = ifc_lite_core::EntityDecoder::new(&content);

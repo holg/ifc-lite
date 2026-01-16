@@ -219,6 +219,7 @@ impl GpuGeometry {
 
     /// Convert Z-up to Y-up in place for a coordinate triple
     #[inline]
+    #[allow(dead_code)]
     fn convert_z_up_to_y_up(coords: &mut [f32]) {
         for chunk in coords.chunks_exact_mut(3) {
             let y = chunk[1];
@@ -573,7 +574,9 @@ impl GpuInstancedGeometryRef {
 
     #[wasm_bindgen(getter, js_name = vertexDataLen)]
     pub fn vertex_data_len(&self) -> usize {
-        self.get_geometry().map(|g| g.vertex_data.len()).unwrap_or(0)
+        self.get_geometry()
+            .map(|g| g.vertex_data.len())
+            .unwrap_or(0)
     }
 
     #[wasm_bindgen(getter, js_name = vertexDataByteLength)]

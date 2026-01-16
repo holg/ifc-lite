@@ -1612,7 +1612,8 @@ impl IfcAPI {
         // Estimate capacity
         let estimated_vertices = content.len() / 50; // Rough estimate
         let estimated_indices = estimated_vertices * 2;
-        let mut gpu_geometry = GpuGeometry::with_capacity(estimated_vertices * 6, estimated_indices);
+        let mut gpu_geometry =
+            GpuGeometry::with_capacity(estimated_vertices * 6, estimated_indices);
 
         // Process all building elements
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
@@ -1756,7 +1757,8 @@ impl IfcAPI {
                 scanner = EntityScanner::new(&content);
 
                 // Processing state
-                let mut current_batch = GpuGeometry::with_capacity(batch_size * 1000, batch_size * 3000);
+                let mut current_batch =
+                    GpuGeometry::with_capacity(batch_size * 1000, batch_size * 3000);
                 let mut processed = 0;
                 let mut total_meshes = 0;
                 let mut total_vertices = 0;
@@ -1765,22 +1767,21 @@ impl IfcAPI {
                     Vec::new();
 
                 // Helper to flush current batch
-                let flush_batch = |batch: &mut GpuGeometry,
-                                   on_batch: &Option<Function>,
-                                   progress: &JsValue| {
-                    if batch.mesh_count() == 0 {
-                        return;
-                    }
+                let flush_batch =
+                    |batch: &mut GpuGeometry, on_batch: &Option<Function>, progress: &JsValue| {
+                        if batch.mesh_count() == 0 {
+                            return;
+                        }
 
-                    if let Some(ref callback) = on_batch {
-                        // Swap out the batch
-                        let to_send =
-                            std::mem::replace(batch, GpuGeometry::with_capacity(1000, 3000));
-                        let _ = callback.call2(&JsValue::NULL, &to_send.into(), progress);
-                    } else {
-                        batch.clear();
-                    }
-                };
+                        if let Some(ref callback) = on_batch {
+                            // Swap out the batch
+                            let to_send =
+                                std::mem::replace(batch, GpuGeometry::with_capacity(1000, 3000));
+                            let _ = callback.call2(&JsValue::NULL, &to_send.into(), progress);
+                        } else {
+                            batch.clear();
+                        }
+                    };
 
                 // First pass - process simple geometry immediately
                 while let Some((id, type_name, start, end)) = scanner.next_entity() {
@@ -1822,10 +1823,10 @@ impl IfcAPI {
                                             calculate_normals(&mut mesh);
                                         }
 
-                                        let color = style_index
-                                            .get(&id)
-                                            .copied()
-                                            .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                                        let color =
+                                            style_index.get(&id).copied().unwrap_or_else(|| {
+                                                get_default_color_for_type(&ifc_type)
+                                            });
 
                                         total_vertices += mesh.positions.len() / 3;
                                         total_triangles += mesh.indices.len() / 3;
@@ -1918,7 +1919,8 @@ impl IfcAPI {
                     if current_batch.mesh_count() >= batch_size {
                         let progress = js_sys::Object::new();
                         let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
-                        js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
+                        js_sys::Reflect::set(&progress, &"percent".into(), &percent.into())
+                            .unwrap();
                         js_sys::Reflect::set(
                             &progress,
                             &"processed".into(),
@@ -1931,7 +1933,8 @@ impl IfcAPI {
                             &(total_elements as f64).into(),
                         )
                         .unwrap();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into()).unwrap();
+                        js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into())
+                            .unwrap();
 
                         flush_batch(&mut current_batch, &on_batch, &progress.into());
                         gloo_timers::future::TimeoutFuture::new(0).await;
@@ -1982,7 +1985,10 @@ impl IfcAPI {
     /// Groups identical geometries by hash for efficient GPU instancing.
     /// Returns a collection of instanced geometries with pointer access.
     #[wasm_bindgen(js_name = parseToGpuInstancedGeometry)]
-    pub fn parse_to_gpu_instanced_geometry(&self, content: String) -> GpuInstancedGeometryCollection {
+    pub fn parse_to_gpu_instanced_geometry(
+        &self,
+        content: String,
+    ) -> GpuInstancedGeometryCollection {
         use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
         use ifc_lite_geometry::{calculate_normals, GeometryRouter, Mesh};
         use rustc_hash::FxHashMap;

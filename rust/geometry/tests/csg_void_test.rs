@@ -400,7 +400,10 @@ fn test_void_subtraction_working_element() {
     );
 
     // Basic assertions
-    assert!(!mesh_with_voids.is_empty(), "Mesh with voids should not be empty");
+    assert!(
+        !mesh_with_voids.is_empty(),
+        "Mesh with voids should not be empty"
+    );
     assert!(
         !mesh_without_voids.is_empty(),
         "Mesh without voids should not be empty"

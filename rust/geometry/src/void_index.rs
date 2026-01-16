@@ -192,7 +192,11 @@ impl VoidStatistics {
             0.0
         };
 
-        let hosts_with_many_voids = index.host_to_voids.values().filter(|v| v.len() > 10).count();
+        let hosts_with_many_voids = index
+            .host_to_voids
+            .values()
+            .filter(|v| v.len() > 10)
+            .count();
 
         Self {
             hosts_with_voids,

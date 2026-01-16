@@ -1,22 +1,20 @@
 //! Toolbar component with tool buttons and file operations
 
 use crate::bridge::{self, EntityData, GeometryData};
-use ifc_lite_core::DecodedEntity;
 use crate::state::{
     Progress, PropertySet, PropertyValue, QuantityValue, Tool, ViewerAction, ViewerStateContext,
 };
 use gloo_file::callbacks::FileReader;
+use ifc_lite_core::DecodedEntity;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
 /// Helper to extract entity refs from a list attribute
 fn get_ref_list(entity: &DecodedEntity, index: usize) -> Option<Vec<u32>> {
-    entity.get_list(index).map(|list| {
-        list.iter()
-            .filter_map(|v| v.as_entity_ref())
-            .collect()
-    })
+    entity
+        .get_list(index)
+        .map(|list| list.iter().filter_map(|v| v.as_entity_ref()).collect())
 }
 
 /// Toolbar component
