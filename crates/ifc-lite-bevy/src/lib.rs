@@ -5,6 +5,9 @@
 //!
 //! Features pure Bevy UI that works on both web (WASM) and native platforms.
 
+// Allow unexpected_cfgs from objc crate's msg_send! macro used in native_view
+#![allow(unexpected_cfgs)]
+
 pub mod camera;
 pub mod loader;
 pub mod mesh;
@@ -14,6 +17,12 @@ pub mod storage;
 
 #[cfg(feature = "bevy-ui")]
 pub mod ui;
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub mod native_view;
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub mod ffi;
 
 use bevy::prelude::*;
 use rustc_hash::FxHashSet;
@@ -61,6 +70,9 @@ pub use storage::*;
 
 #[cfg(feature = "bevy-ui")]
 pub use ui::{IfcUiPlugin, UiState};
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub use native_view::{AppView, AppViewPlugin, AppViews};
 
 /// Main IFC viewer plugin - combines all subsystems
 pub struct IfcViewerPlugin;

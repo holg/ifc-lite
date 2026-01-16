@@ -21,6 +21,8 @@ concurrency:
 
 jobs:
   build:
+    # Only run on upstream repo, not forks (forks don't have Pages configured)
+    if: github.repository == 'louistrue/ifc-lite'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -46,6 +48,8 @@ jobs:
           path: target/doc
 
   deploy:
+    # Only run on upstream repo, not forks
+    if: github.repository == 'louistrue/ifc-lite'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

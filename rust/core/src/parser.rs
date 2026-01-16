@@ -263,54 +263,76 @@ impl<'a> EntityScanner<'a> {
     /// Returns (entity_id, type_name, line_start, line_end)
     #[inline]
     pub fn next_entity(&mut self) -> Option<(u32, &'a str, usize, usize)> {
-        let remaining = &self.bytes[self.position..];
+        loop {
+            let remaining = &self.bytes[self.position..];
 
-        // Find next '#' that starts an entity using SIMD-accelerated search
-        let start_offset = memchr::memchr(b'#', remaining)?;
-        let line_start = self.position + start_offset;
+            // Find next '#' that starts an entity using SIMD-accelerated search
+            let start_offset = memchr::memchr(b'#', remaining)?;
+            let line_start = self.position + start_offset;
 
-        // Find the end of the line (semicolon) using SIMD
-        let line_content = &self.bytes[line_start..];
-        let end_offset = memchr::memchr(b';', line_content)?;
-        let line_end = line_start + end_offset + 1;
-
-        // Parse entity ID (inline for speed)
-        let id_start = line_start + 1;
-        let mut id_end = id_start;
-        while id_end < line_end && self.bytes[id_end].is_ascii_digit() {
-            id_end += 1;
-        }
-
-        // Fast integer parsing without allocation
-        let id = self.parse_u32_fast(id_start, id_end)?;
-
-        // Find '=' after ID using SIMD
-        let eq_search = &self.bytes[id_end..line_end];
-        let eq_offset = memchr::memchr(b'=', eq_search)?;
-        let mut type_start = id_end + eq_offset + 1;
-
-        // Skip whitespace (inline)
-        while type_start < line_end && self.bytes[type_start].is_ascii_whitespace() {
-            type_start += 1;
-        }
-
-        // Find end of type name (at '(' or whitespace)
-        let mut type_end = type_start;
-        while type_end < line_end {
-            let b = self.bytes[type_end];
-            if b == b'(' || b.is_ascii_whitespace() {
-                break;
+            // IMPORTANT: Only parse if '#' is at start of line (after newline or at position 0)
+            // This prevents parsing references like #33 inside entity values
+            let is_line_start = line_start == 0 || self.bytes[line_start - 1] == b'\n';
+            if !is_line_start {
+                // Skip this '#' and continue searching
+                self.position = line_start + 1;
+                continue;
             }
-            type_end += 1;
+
+            // Find the end of the line (semicolon) using SIMD
+            let line_content = &self.bytes[line_start..];
+            let end_offset = memchr::memchr(b';', line_content)?;
+            let line_end = line_start + end_offset + 1;
+
+            // Parse entity ID (inline for speed)
+            let id_start = line_start + 1;
+            let mut id_end = id_start;
+            while id_end < line_end && self.bytes[id_end].is_ascii_digit() {
+                id_end += 1;
+            }
+
+            // Fast integer parsing without allocation
+            let id = match self.parse_u32_fast(id_start, id_end) {
+                Some(id) => id,
+                None => {
+                    // Invalid ID, skip this line
+                    self.position = line_end;
+                    continue;
+                }
+            };
+
+            // Find '=' after ID - must be immediately after digits
+            if id_end >= line_end || self.bytes[id_end] != b'=' {
+                // No '=' immediately after ID, skip
+                self.position = line_end;
+                continue;
+            }
+            let mut type_start = id_end + 1;
+
+            // Skip whitespace (inline)
+            while type_start < line_end && self.bytes[type_start].is_ascii_whitespace() {
+                type_start += 1;
+            }
+
+            // Find end of type name (at '(' or whitespace)
+            let mut type_end = type_start;
+            while type_end < line_end {
+                let b = self.bytes[type_end];
+                if b == b'(' || b.is_ascii_whitespace() {
+                    break;
+                }
+                type_end += 1;
+            }
+
+            // Safe because IFC files are ASCII
+            let type_name =
+                unsafe { std::str::from_utf8_unchecked(&self.bytes[type_start..type_end]) };
+
+            // Move position past this entity
+            self.position = line_end;
+
+            return Some((id, type_name, line_start, line_end));
         }
-
-        // Safe because IFC files are ASCII
-        let type_name = unsafe { std::str::from_utf8_unchecked(&self.bytes[type_start..type_end]) };
-
-        // Move position past this entity
-        self.position = line_end;
-
-        Some((id, type_name, line_start, line_end))
     }
 
     /// Fast u32 parsing without string allocation
