@@ -269,10 +269,8 @@ impl<'a> EntityScanner<'a> {
         let start_offset = memchr::memchr(b'#', remaining)?;
         let line_start = self.position + start_offset;
 
-        // Find the end of the line (semicolon) using SIMD
-        let line_content = &self.bytes[line_start..];
-        let end_offset = memchr::memchr(b';', line_content)?;
-        let line_end = line_start + end_offset + 1;
+        // Find the end of the entity, properly handling quoted strings containing semicolons
+        let line_end = self.find_entity_end(line_start)?;
 
         // Parse entity ID (inline for speed)
         let id_start = line_start + 1;
@@ -325,6 +323,41 @@ impl<'a> EntityScanner<'a> {
             result = result.wrapping_mul(10).wrapping_add(digit as u32);
         }
         Some(result)
+    }
+
+    /// Find the end of an entity, properly handling quoted strings that may contain semicolons.
+    /// IFC strings use single quotes and escape quotes by doubling them ('').
+    #[inline]
+    fn find_entity_end(&self, start: usize) -> Option<usize> {
+        let mut pos = start;
+        let len = self.bytes.len();
+
+        while pos < len {
+            let b = self.bytes[pos];
+
+            if b == b'\'' {
+                // Start of single-quoted string - skip to end
+                pos += 1;
+                while pos < len {
+                    if self.bytes[pos] == b'\'' {
+                        // Check for escaped quote ('')
+                        if pos + 1 < len && self.bytes[pos + 1] == b'\'' {
+                            pos += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    pos += 1;
+                }
+                pos += 1;
+            } else if b == b';' {
+                // Found the entity-terminating semicolon
+                return Some(pos + 1);
+            } else {
+                pos += 1;
+            }
+        }
+        None
     }
 
     /// Find all entities of a specific type
@@ -512,5 +545,27 @@ mod tests {
         assert_eq!(counts.get("IFCPROJECT"), Some(&1));
         assert_eq!(counts.get("IFCWALL"), Some(&2));
         assert_eq!(counts.get("IFCDOOR"), Some(&1));
+    }
+
+    #[test]
+    fn test_semicolon_in_quoted_string() {
+        // This is the problematic case: semicolon inside a quoted string
+        // e.g., 'SANITAIRE TOESTELLEN;' should NOT terminate the entity
+        let content = r#"
+#109010=IFCCLASSIFICATIONREFERENCE($,'74.11','SANITAIRE TOESTELLEN;',#108996,$,$);
+#109011=IFCWALL('next',$,$,$,$,$,$,$);
+"#;
+
+        let mut scanner = EntityScanner::new(content);
+
+        // First entity should be the classification reference
+        let (id1, type1, _, _) = scanner.next_entity().expect("Should find first entity");
+        assert_eq!(id1, 109010);
+        assert_eq!(type1, "IFCCLASSIFICATIONREFERENCE");
+
+        // Second entity should be the wall (not get confused by semicolon in string)
+        let (id2, type2, _, _) = scanner.next_entity().expect("Should find second entity");
+        assert_eq!(id2, 109011);
+        assert_eq!(type2, "IFCWALL");
     }
 }

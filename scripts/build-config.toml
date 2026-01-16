@@ -1,0 +1,69 @@
+# Build configuration for WASM split bundles
+# This file defines project-specific paths and settings for build-wasm-split.sh
+#
+# Copy this file to build-config.toml and adjust the [deploy] section for your server.
+#
+# For ifc-lite: IFC (Industry Foundation Classes) viewer
+
+[project]
+name = "ifc-lite"
+display_name = "IFC Viewer"
+
+[paths]
+# Relative to repository root
+wasm_crate = "crates/ifc-lite-viewer"
+bevy_crate = "crates/ifc-lite-bevy"
+bevy_output = "target/wasm32-unknown-unknown/web-release"
+# No typst support in ifc-lite
+typst_source = ""
+dist_output = "crates/ifc-lite-viewer/dist"
+assets = "assets"
+# Watch paths - directories to monitor for changes (triggers rebuild when modified)
+# Includes all dependent crates that might change
+watch_paths = ["rust/core", "rust/geometry", "crates/ifc-lite-yew"]
+
+[bevy]
+# Library name for WASM builds (from Cargo.toml [lib] name, with hyphens as underscores)
+library_name = "ifc_lite_bevy"
+# Binary name for reference (not used for WASM)
+binary_name = "ifc-lite-bevy"
+# Features to enable when building
+features = []
+
+[bundles]
+# Which bundles to build
+leptos = true   # Actually Yew, but the script calls it "leptos"
+bevy = true
+typst = false   # No typst/PDF support in ifc-lite
+gmaps = false   # No Google Maps in ifc-lite
+
+[bundles.leptos]
+description = "Yew IFC viewer UI"
+load_strategy = "immediate"
+
+[bundles.bevy]
+description = "Bevy 3D renderer"
+load_strategy = "on_demand"
+size_estimate = "~50MB compressed"
+
+[deploy]
+# rsync target for deployment (user@host:/path/)
+# Example: target = "user@example.com:/var/www/html/"
+target = "iesna.eu:/var/www/bimifc.de/html"
+# Additional rsync flags (never use --delete!)
+rsync_flags = "-avz"
+
+[deploy.local]
+# Local server settings
+port = 8082
+# No custom server crate, uses python3 http.server
+server_crate = ""
+
+[pages]
+# Additional HTML pages to generate (empty - none needed)
+secret_export_page = ""
+custom_404_svg = ""
+
+[env]
+# Environment variables (none needed for ifc-lite)
+google_maps_key = ""
