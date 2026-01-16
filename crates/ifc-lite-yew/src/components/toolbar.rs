@@ -313,6 +313,7 @@ fn extract_properties_and_quantities(
     element_properties: &std::collections::HashMap<u32, Vec<u32>>,
     element_to_type: &std::collections::HashMap<u32, u32>,
     decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f64,
 ) -> (Vec<PropertySet>, Vec<QuantityValue>) {
     let mut property_sets = Vec::new();
     let mut quantities = Vec::new();
@@ -414,29 +415,33 @@ fn extract_properties_and_quantities(
                             // IfcPhysicalQuantity subtypes: Name, Description, ...values
                             let name = qty.get_string(0).map(|s| s.to_string()).unwrap_or_default();
 
+                            // Apply unit scale: length * scale, area * scale², volume * scale³
                             let (value, unit, qty_type) = match qty.ifc_type {
                                 ifc_lite_core::IfcType::IfcQuantityLength => {
                                     // IfcQuantityLength: (Name, Description, Unit, LengthValue, Formula)
-                                    let val = qty.get_float(3).unwrap_or(0.0);
+                                    let val = qty.get_float(3).unwrap_or(0.0) * unit_scale;
                                     (val, "m".to_string(), "Length".to_string())
                                 }
                                 ifc_lite_core::IfcType::IfcQuantityArea => {
-                                    let val = qty.get_float(3).unwrap_or(0.0);
+                                    let val = qty.get_float(3).unwrap_or(0.0) * unit_scale * unit_scale;
                                     (val, "m²".to_string(), "Area".to_string())
                                 }
                                 ifc_lite_core::IfcType::IfcQuantityVolume => {
-                                    let val = qty.get_float(3).unwrap_or(0.0);
+                                    let val = qty.get_float(3).unwrap_or(0.0) * unit_scale * unit_scale * unit_scale;
                                     (val, "m³".to_string(), "Volume".to_string())
                                 }
                                 ifc_lite_core::IfcType::IfcQuantityCount => {
+                                    // Count doesn't need scaling
                                     let val = qty.get_float(3).unwrap_or(0.0);
                                     (val, "".to_string(), "Count".to_string())
                                 }
                                 ifc_lite_core::IfcType::IfcQuantityWeight => {
+                                    // Weight doesn't use length scale
                                     let val = qty.get_float(3).unwrap_or(0.0);
                                     (val, "kg".to_string(), "Weight".to_string())
                                 }
                                 ifc_lite_core::IfcType::IfcQuantityTime => {
+                                    // Time doesn't use length scale
                                     let val = qty.get_float(3).unwrap_or(0.0);
                                     (val, "s".to_string(), "Time".to_string())
                                 }
@@ -942,6 +947,7 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
                 &element_properties,
                 &element_to_type,
                 &mut decoder,
+                unit_scale as f64,
             );
             crate::state::EntityInfo {
                 id: e.id,
