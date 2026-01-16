@@ -89,6 +89,9 @@ pub struct EntityDecoder<'a> {
     /// Index of entity offsets (entity_id -> (start, end))
     /// Can be pre-built or built lazily
     entity_index: Option<EntityIndex>,
+    /// Cached length unit scale (None = not yet extracted)
+    /// This is the multiplier to convert IFC length values to meters
+    length_unit_scale: Option<f64>,
 }
 
 impl<'a> EntityDecoder<'a> {
@@ -98,6 +101,7 @@ impl<'a> EntityDecoder<'a> {
             content,
             cache: FxHashMap::default(),
             entity_index: None,
+            length_unit_scale: None,
         }
     }
 
@@ -107,6 +111,7 @@ impl<'a> EntityDecoder<'a> {
             content,
             cache: FxHashMap::default(),
             entity_index: Some(index),
+            length_unit_scale: None,
         }
     }
 
@@ -117,6 +122,31 @@ impl<'a> EntityDecoder<'a> {
             return; // Already built
         }
         self.entity_index = Some(build_entity_index(self.content));
+    }
+
+    /// Get the cached length unit scale (multiplier to convert to meters)
+    /// Returns None if not yet extracted - call extract_unit_scale() first
+    pub fn length_unit_scale(&self) -> Option<f64> {
+        self.length_unit_scale
+    }
+
+    /// Set the length unit scale manually
+    pub fn set_length_unit_scale(&mut self, scale: f64) {
+        self.length_unit_scale = Some(scale);
+    }
+
+    /// Extract and cache the length unit scale from the IFC project
+    /// Returns the scale factor (e.g., 0.001 for millimeters, 1.0 for meters)
+    pub fn extract_unit_scale(&mut self, project_id: u32) -> Result<f64> {
+        // Return cached value if already extracted
+        if let Some(scale) = self.length_unit_scale {
+            return Ok(scale);
+        }
+
+        // Extract from project
+        let scale = crate::units::extract_length_unit_scale(self, project_id)?;
+        self.length_unit_scale = Some(scale);
+        Ok(scale)
     }
 
     /// Decode entity at byte offset

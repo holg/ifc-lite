@@ -731,23 +731,25 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         element_to_type.len()
     ));
 
-    // Extract unit scale from project (default to 1.0 if not found)
+    // Extract and cache unit scale from project (default to 1.0 if not found)
     let unit_scale = if let Some(proj_id) = project_id {
-        match ifc_lite_core::extract_length_unit_scale(&mut decoder, proj_id) {
+        match decoder.extract_unit_scale(proj_id) {
             Ok(scale) => {
                 bridge::log(&format!(
-                    "Unit scale: {} (from project #{})",
+                    "Unit scale: {} (from project #{}) - cached in decoder",
                     scale, proj_id
                 ));
                 scale as f32
             }
             Err(e) => {
                 bridge::log(&format!("Failed to extract unit scale: {:?}, using 1.0", e));
+                decoder.set_length_unit_scale(1.0);
                 1.0
             }
         }
     } else {
         bridge::log("No IFCPROJECT found, using unit scale 1.0");
+        decoder.set_length_unit_scale(1.0);
         1.0
     };
 
