@@ -263,21 +263,41 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_302(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_302(arg0, arg1);
+function __wasm_bindgen_func_elem_377(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_377(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_682(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_682(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_673(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_673(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_716(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_716(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_707(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_707(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_georeferencejs_free(ptr >>> 0, 1));
+
+const GpuGeometryFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_gpugeometry_free(ptr >>> 0, 1));
+
+const GpuInstancedGeometryFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_gpuinstancedgeometry_free(ptr >>> 0, 1));
+
+const GpuInstancedGeometryCollectionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_gpuinstancedgeometrycollection_free(ptr >>> 0, 1));
+
+const GpuInstancedGeometryRefFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_gpuinstancedgeometryref_free(ptr >>> 0, 1));
+
+const GpuMeshMetadataFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_gpumeshmetadata_free(ptr >>> 0, 1));
 
 const IfcAPIFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
@@ -515,6 +535,542 @@ export class GeoReferenceJs {
 if (Symbol.dispose) GeoReferenceJs.prototype[Symbol.dispose] = GeoReferenceJs.prototype.free;
 
 /**
+ * GPU-ready geometry stored in WASM linear memory
+ *
+ * Data layout:
+ * - vertex_data: Interleaved [px, py, pz, nx, ny, nz, ...] (6 floats per vertex)
+ * - indices: Triangle indices [i0, i1, i2, ...]
+ * - mesh_metadata: Per-mesh metadata for draw calls
+ *
+ * All coordinates are pre-converted from IFC Z-up to WebGL Y-up
+ */
+export class GpuGeometry {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(GpuGeometry.prototype);
+        obj.__wbg_ptr = ptr;
+        GpuGeometryFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        GpuGeometryFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_gpugeometry_free(ptr, 0);
+    }
+    /**
+     * Get number of meshes in this geometry batch
+     * @returns {number}
+     */
+    get meshCount() {
+        const ret = wasm.gpugeometry_meshCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get length of indices array (in u32 elements)
+     * @returns {number}
+     */
+    get indicesLen() {
+        const ret = wasm.gpugeometry_indicesLen(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get pointer to indices array for zero-copy view
+     * @returns {number}
+     */
+    get indicesPtr() {
+        const ret = wasm.gpugeometry_indicesPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get length of vertex data array (in f32 elements, not bytes)
+     * @returns {number}
+     */
+    get vertexDataLen() {
+        const ret = wasm.gpugeometry_vertexDataLen(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get pointer to vertex data for zero-copy view
+     *
+     * SAFETY: View is only valid until next WASM allocation!
+     * Create view, upload to GPU, then discard view immediately.
+     * @returns {number}
+     */
+    get vertexDataPtr() {
+        const ret = wasm.gpugeometry_vertexDataPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get IFC type name by index
+     * @param {number} index
+     * @returns {string | undefined}
+     */
+    getIfcTypeName(index) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.gpugeometry_getIfcTypeName(retptr, this.__wbg_ptr, index);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            let v1;
+            if (r0 !== 0) {
+                v1 = getStringFromWasm0(r0, r1).slice();
+                wasm.__wbindgen_export4(r0, r1 * 1, 1);
+            }
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Get metadata for a specific mesh
+     * @param {number} index
+     * @returns {GpuMeshMetadata | undefined}
+     */
+    getMeshMetadata(index) {
+        const ret = wasm.gpugeometry_getMeshMetadata(this.__wbg_ptr, index);
+        return ret === 0 ? undefined : GpuMeshMetadata.__wrap(ret);
+    }
+    /**
+     * Get total vertex count
+     * @returns {number}
+     */
+    get totalVertexCount() {
+        const ret = wasm.gpugeometry_totalVertexCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get byte length of indices (for GPU buffer creation)
+     * @returns {number}
+     */
+    get indicesByteLength() {
+        const ret = wasm.gpugeometry_indicesByteLength(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get total triangle count
+     * @returns {number}
+     */
+    get totalTriangleCount() {
+        const ret = wasm.gpugeometry_totalTriangleCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get byte length of vertex data (for GPU buffer creation)
+     * @returns {number}
+     */
+    get vertexDataByteLength() {
+        const ret = wasm.gpugeometry_vertexDataByteLength(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Create a new empty GPU geometry container
+     */
+    constructor() {
+        const ret = wasm.gpugeometry_new();
+        this.__wbg_ptr = ret >>> 0;
+        GpuGeometryFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Check if geometry is empty
+     * @returns {boolean}
+     */
+    get isEmpty() {
+        const ret = wasm.gpugeometry_isEmpty(this.__wbg_ptr);
+        return ret !== 0;
+    }
+}
+if (Symbol.dispose) GpuGeometry.prototype[Symbol.dispose] = GpuGeometry.prototype.free;
+
+/**
+ * GPU-ready instanced geometry for efficient rendering of repeated shapes
+ *
+ * Data layout:
+ * - vertex_data: Interleaved [px, py, pz, nx, ny, nz, ...] (shared geometry)
+ * - indices: Triangle indices (shared geometry)
+ * - instance_data: [transform (16 floats) + color (4 floats)] per instance = 20 floats
+ */
+export class GpuInstancedGeometry {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(GpuInstancedGeometry.prototype);
+        obj.__wbg_ptr = ptr;
+        GpuInstancedGeometryFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        GpuInstancedGeometryFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_gpuinstancedgeometry_free(ptr, 0);
+    }
+    /**
+     * @returns {bigint}
+     */
+    get geometryId() {
+        const ret = wasm.gpuinstancedgeometry_geometryId(this.__wbg_ptr);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
+     * @returns {number}
+     */
+    get indicesLen() {
+        const ret = wasm.gpuinstancedgeometry_indicesLen(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get indicesPtr() {
+        const ret = wasm.gpuinstancedgeometry_indicesPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertexCount() {
+        const ret = wasm.gpuinstancedgeometry_vertexCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceCount() {
+        const ret = wasm.gpuinstancedgeometry_instanceCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get triangleCount() {
+        const ret = wasm.gpuinstancedgeometry_triangleCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertexDataLen() {
+        const ret = wasm.gpuinstancedgeometry_vertexDataLen(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertexDataPtr() {
+        const ret = wasm.gpugeometry_indicesPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceDataLen() {
+        const ret = wasm.gpuinstancedgeometry_instanceDataLen(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceDataPtr() {
+        const ret = wasm.gpuinstancedgeometry_instanceDataPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get indicesByteLength() {
+        const ret = wasm.gpuinstancedgeometry_indicesByteLength(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertexDataByteLength() {
+        const ret = wasm.gpuinstancedgeometry_vertexDataByteLength(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceExpressIdsPtr() {
+        const ret = wasm.gpuinstancedgeometry_instanceExpressIdsPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceDataByteLength() {
+        const ret = wasm.gpuinstancedgeometry_instanceDataByteLength(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Create new instanced geometry
+     * @param {bigint} geometry_id
+     */
+    constructor(geometry_id) {
+        const ret = wasm.gpuinstancedgeometry_new(geometry_id);
+        this.__wbg_ptr = ret >>> 0;
+        GpuInstancedGeometryFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+}
+if (Symbol.dispose) GpuInstancedGeometry.prototype[Symbol.dispose] = GpuInstancedGeometry.prototype.free;
+
+/**
+ * Collection of GPU-ready instanced geometries
+ */
+export class GpuInstancedGeometryCollection {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(GpuInstancedGeometryCollection.prototype);
+        obj.__wbg_ptr = ptr;
+        GpuInstancedGeometryCollectionFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        GpuInstancedGeometryCollectionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_gpuinstancedgeometrycollection_free(ptr, 0);
+    }
+    /**
+     * @param {number} index
+     * @returns {GpuInstancedGeometry | undefined}
+     */
+    get(index) {
+        const ret = wasm.gpuinstancedgeometrycollection_get(this.__wbg_ptr, index);
+        return ret === 0 ? undefined : GpuInstancedGeometry.__wrap(ret);
+    }
+    constructor() {
+        const ret = wasm.gpuinstancedgeometrycollection_new();
+        this.__wbg_ptr = ret >>> 0;
+        GpuInstancedGeometryCollectionFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    get length() {
+        const ret = wasm.gpuinstancedgeometrycollection_length(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get geometry by index with zero-copy access
+     * Returns a reference that provides pointer access
+     * @param {number} index
+     * @returns {GpuInstancedGeometryRef | undefined}
+     */
+    getRef(index) {
+        const ret = wasm.gpuinstancedgeometrycollection_getRef(this.__wbg_ptr, index);
+        return ret === 0 ? undefined : GpuInstancedGeometryRef.__wrap(ret);
+    }
+}
+if (Symbol.dispose) GpuInstancedGeometryCollection.prototype[Symbol.dispose] = GpuInstancedGeometryCollection.prototype.free;
+
+/**
+ * Reference to geometry in collection for zero-copy access
+ * This avoids cloning when accessing geometry data
+ */
+export class GpuInstancedGeometryRef {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(GpuInstancedGeometryRef.prototype);
+        obj.__wbg_ptr = ptr;
+        GpuInstancedGeometryRefFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        GpuInstancedGeometryRefFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_gpuinstancedgeometryref_free(ptr, 0);
+    }
+    /**
+     * @returns {bigint}
+     */
+    get geometryId() {
+        const ret = wasm.gpuinstancedgeometryref_geometryId(this.__wbg_ptr);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
+     * @returns {number}
+     */
+    get indicesLen() {
+        const ret = wasm.gpuinstancedgeometryref_indicesLen(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get indicesPtr() {
+        const ret = wasm.gpuinstancedgeometryref_indicesPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceCount() {
+        const ret = wasm.gpuinstancedgeometryref_instanceCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertexDataLen() {
+        const ret = wasm.gpuinstancedgeometryref_vertexDataLen(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertexDataPtr() {
+        const ret = wasm.gpuinstancedgeometryref_vertexDataPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceDataLen() {
+        const ret = wasm.gpuinstancedgeometryref_instanceDataLen(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceDataPtr() {
+        const ret = wasm.gpuinstancedgeometryref_instanceDataPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get indicesByteLength() {
+        const ret = wasm.gpuinstancedgeometryref_indicesByteLength(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertexDataByteLength() {
+        const ret = wasm.gpuinstancedgeometryref_vertexDataByteLength(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceExpressIdsPtr() {
+        const ret = wasm.gpuinstancedgeometryref_instanceExpressIdsPtr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get instanceDataByteLength() {
+        const ret = wasm.gpuinstancedgeometryref_instanceDataByteLength(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) GpuInstancedGeometryRef.prototype[Symbol.dispose] = GpuInstancedGeometryRef.prototype.free;
+
+/**
+ * Metadata for a single mesh within the GPU geometry buffer
+ */
+export class GpuMeshMetadata {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(GpuMeshMetadata.prototype);
+        obj.__wbg_ptr = ptr;
+        GpuMeshMetadataFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        GpuMeshMetadataFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_gpumeshmetadata_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    get expressId() {
+        const ret = wasm.gpumeshmetadata_expressId(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get indexCount() {
+        const ret = wasm.gpumeshmetadata_indexCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get ifcTypeIdx() {
+        const ret = wasm.gpumeshmetadata_ifcTypeIdx(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get indexOffset() {
+        const ret = wasm.gpumeshmetadata_indexOffset(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertexCount() {
+        const ret = wasm.gpumeshmetadata_vertexCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertexOffset() {
+        const ret = wasm.gpumeshmetadata_vertexOffset(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get color() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.gpumeshmetadata_color(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF32FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 4, 4);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+}
+if (Symbol.dispose) GpuMeshMetadata.prototype[Symbol.dispose] = GpuMeshMetadata.prototype.free;
+
+/**
  * Main IFC-Lite API
  */
 export class IfcAPI {
@@ -689,6 +1245,50 @@ export class IfcAPI {
         return MeshCollectionWithRtc.__wrap(ret);
     }
     /**
+     * Parse IFC file and return GPU-ready geometry for zero-copy upload
+     *
+     * This method generates geometry that is:
+     * - Pre-interleaved (position + normal per vertex)
+     * - Coordinate-converted (Z-up to Y-up)
+     * - Ready for direct GPU upload via pointer access
+     *
+     * Example:
+     * ```javascript
+     * const api = new IfcAPI();
+     * const gpuGeom = api.parseToGpuGeometry(ifcData);
+     *
+     * // Get WASM memory for zero-copy views
+     * const memory = api.getMemory();
+     *
+     * // Create views directly into WASM memory (NO COPY!)
+     * const vertexView = new Float32Array(
+     *   memory.buffer,
+     *   gpuGeom.vertexDataPtr,
+     *   gpuGeom.vertexDataLen
+     * );
+     * const indexView = new Uint32Array(
+     *   memory.buffer,
+     *   gpuGeom.indicesPtr,
+     *   gpuGeom.indicesLen
+     * );
+     *
+     * // Upload directly to GPU (single copy: WASM → GPU)
+     * device.queue.writeBuffer(vertexBuffer, 0, vertexView);
+     * device.queue.writeBuffer(indexBuffer, 0, indexView);
+     *
+     * // Free when done
+     * gpuGeom.free();
+     * ```
+     * @param {string} content
+     * @returns {GpuGeometry}
+     */
+    parseToGpuGeometry(content) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_parseToGpuGeometry(this.__wbg_ptr, ptr0, len0);
+        return GpuGeometry.__wrap(ret);
+    }
+    /**
      * Parse IFC file and return instanced geometry grouped by geometry hash
      * This reduces draw calls by grouping identical geometries with different transforms
      *
@@ -763,6 +1363,48 @@ export class IfcAPI {
         }
     }
     /**
+     * Parse IFC file with streaming GPU-ready geometry batches
+     *
+     * Yields batches of GPU-ready geometry for progressive rendering with zero-copy upload.
+     * Uses fast-first-frame streaming: simple geometry (walls, slabs) first.
+     *
+     * Example:
+     * ```javascript
+     * const api = new IfcAPI();
+     * const memory = api.getMemory();
+     *
+     * await api.parseToGpuGeometryAsync(ifcData, {
+     *   batchSize: 25,
+     *   onBatch: (gpuGeom, progress) => {
+     *     // Create zero-copy views
+     *     const vertexView = new Float32Array(
+     *       memory.buffer,
+     *       gpuGeom.vertexDataPtr,
+     *       gpuGeom.vertexDataLen
+     *     );
+     *
+     *     // Upload to GPU
+     *     device.queue.writeBuffer(vertexBuffer, 0, vertexView);
+     *
+     *     // IMPORTANT: Free immediately after upload!
+     *     gpuGeom.free();
+     *   },
+     *   onComplete: (stats) => {
+     *     console.log(`Done! ${stats.totalMeshes} meshes`);
+     *   }
+     * });
+     * ```
+     * @param {string} content
+     * @param {any} options
+     * @returns {Promise<any>}
+     */
+    parseToGpuGeometryAsync(content, options) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_parseToGpuGeometryAsync(this.__wbg_ptr, ptr0, len0, addHeapObject(options));
+        return takeObject(ret);
+    }
+    /**
      * Parse IFC file with streaming instanced geometry batches for progressive rendering
      * Groups identical geometries and yields batches of InstancedGeometry
      * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
@@ -791,6 +1433,20 @@ export class IfcAPI {
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseMeshesInstancedAsync(this.__wbg_ptr, ptr0, len0, addHeapObject(options));
         return takeObject(ret);
+    }
+    /**
+     * Parse IFC file to GPU-ready instanced geometry for zero-copy upload
+     *
+     * Groups identical geometries by hash for efficient GPU instancing.
+     * Returns a collection of instanced geometries with pointer access.
+     * @param {string} content
+     * @returns {GpuInstancedGeometryCollection}
+     */
+    parseToGpuInstancedGeometry(content) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_parseToGpuInstancedGeometry(this.__wbg_ptr, ptr0, len0);
+        return GpuInstancedGeometryCollection.__wrap(ret);
     }
     /**
      * Create and initialize the IFC API
@@ -929,7 +1585,7 @@ export class InstancedGeometry {
      * @returns {bigint}
      */
     get geometryId() {
-        const ret = wasm.instancedgeometry_geometryId(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_geometryId(this.__wbg_ptr);
         return BigInt.asUintN(64, ret);
     }
     /**
@@ -1003,7 +1659,7 @@ export class InstancedMeshCollection {
      * @returns {number}
      */
     get totalGeometries() {
-        const ret = wasm.instancedmeshcollection_length(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometrycollection_length(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1018,7 +1674,7 @@ export class InstancedMeshCollection {
      * @returns {number}
      */
     get length() {
-        const ret = wasm.instancedmeshcollection_length(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometrycollection_length(this.__wbg_ptr);
         return ret >>> 0;
     }
 }
@@ -1172,7 +1828,7 @@ export class MeshDataJs {
      * @returns {number}
      */
     get vertexCount() {
-        const ret = wasm.meshdatajs_vertexCount(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_totalTriangleCount(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1404,7 +2060,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get indices_len() {
-        const ret = wasm.zerocopymesh_indices_len(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_indicesLen(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1412,7 +2068,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get indices_ptr() {
-        const ret = wasm.zerocopymesh_indices_ptr(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_indicesPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1420,7 +2076,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get normals_len() {
-        const ret = wasm.zerocopymesh_normals_len(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_indicesLen(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1428,7 +2084,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get normals_ptr() {
-        const ret = wasm.zerocopymesh_normals_ptr(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_indicesPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1444,7 +2100,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get positions_len() {
-        const ret = wasm.zerocopymesh_positions_len(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_vertexDataLen(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1453,7 +2109,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get positions_ptr() {
-        const ret = wasm.zerocopymesh_positions_ptr(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_vertexDataPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1461,7 +2117,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get triangle_count() {
-        const ret = wasm.zerocopymesh_triangle_count(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_triangleCount(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1478,7 +2134,7 @@ export class ZeroCopyMesh {
      * @returns {boolean}
      */
     get is_empty() {
-        const ret = wasm.zerocopymesh_is_empty(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_isEmpty(this.__wbg_ptr);
         return ret !== 0;
     }
 }
@@ -1631,6 +2287,10 @@ function __wbg_get_imports() {
         const ret = Reflect.get(getObject(arg0), getObject(arg1));
         return addHeapObject(ret);
     }, arguments) };
+    imports.wbg.__wbg_gpugeometry_new = function(arg0) {
+        const ret = GpuGeometry.__wrap(arg0);
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbg_instancedgeometry_new = function(arg0) {
         const ret = InstancedGeometry.__wrap(arg0);
         return addHeapObject(ret);
@@ -1638,9 +2298,6 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_length_d45040a40c570362 = function(arg0) {
         const ret = getObject(arg0).length;
         return ret;
-    };
-    imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
-        console.log(getObject(arg0));
     };
     imports.wbg.__wbg_meshdatajs_new = function(arg0) {
         const ret = MeshDataJs.__wrap(arg0);
@@ -1665,7 +2322,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_716(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_707(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1743,9 +2400,9 @@ function __wbg_get_imports() {
         const ret = getStringFromWasm0(arg0, arg1);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_344fafcc5114bf2d = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 108, function: Function { arguments: [Externref], shim_idx: 109, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_681, __wasm_bindgen_func_elem_682);
+    imports.wbg.__wbindgen_cast_5f9a13552260be22 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 112, function: Function { arguments: [Externref], shim_idx: 113, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_672, __wasm_bindgen_func_elem_673);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
@@ -1753,9 +2410,9 @@ function __wbg_get_imports() {
         const ret = arg0;
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_f5edc6344c6146a4 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 44, function: Function { arguments: [], shim_idx: 45, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_301, __wasm_bindgen_func_elem_302);
+    imports.wbg.__wbindgen_cast_fa504d1cec41bd0d = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 45, function: Function { arguments: [], shim_idx: 46, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_376, __wasm_bindgen_func_elem_377);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {

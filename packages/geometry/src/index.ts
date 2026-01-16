@@ -26,6 +26,19 @@ export {
 export * from './types.js';
 export * from './default-materials.js';
 
+// Zero-copy GPU upload (new - faster, less memory)
+export { WasmMemoryManager, type GpuGeometryHandle, type GpuMeshMetadataHandle, type GpuInstancedGeometryHandle, type GpuInstancedGeometryCollectionHandle, type GpuInstancedGeometryRefHandle } from './wasm-memory-manager.js';
+export {
+  ZeroCopyMeshCollector,
+  ZeroCopyInstancedCollector,
+  type ZeroCopyStreamingProgress,
+  type ZeroCopyBatchResult,
+  type ZeroCopyCompleteStats,
+  type ZeroCopyMeshMetadata,
+  type ZeroCopyBatch,
+  type ZeroCopyInstancedBatch,
+} from './zero-copy-collector.js';
+
 // Legacy exports for compatibility (deprecated)
 export { IfcLiteBridge as WebIfcBridge } from './ifc-lite-bridge.js';
 
@@ -187,9 +200,14 @@ export class GeometryProcessor {
     // Reset coordinate handler for new file
     this.coordinateHandler.reset();
 
+    // Yield start event FIRST so UI can update before heavy processing
     yield { type: 'start', totalEstimate: buffer.length / 1000 };
 
+    // Yield to main thread before heavy decode operation
+    await new Promise(resolve => setTimeout(resolve, 0));
+
     // Convert buffer to string (IFC files are text)
+    // This is blocking but unavoidable - WASM API expects string
     const decoder = new TextDecoder();
     const content = decoder.decode(buffer);
 

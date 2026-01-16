@@ -2344,8 +2344,9 @@ mod tests {
         use crate::router::GeometryRouter;
 
         // Read the actual advanced_brep.ifc file
-        let content = std::fs::read_to_string("../../tests/models/ifcopenshell/advanced_brep.ifc")
-            .expect("Failed to read test file");
+        let content =
+            std::fs::read_to_string("../../tests/benchmark/models/ifcopenshell/advanced_brep.ifc")
+                .expect("Failed to read test file");
 
         let entity_index = ifc_lite_core::build_entity_index(&content);
         let mut decoder = EntityDecoder::with_index(&content, entity_index);
@@ -2452,7 +2453,7 @@ mod tests {
 
         // Read the actual 764 column file
         let content = std::fs::read_to_string(
-            "../../tests/models/ifcopenshell/764--column--no-materials-or-surface-styles-found--augmented.ifc"
+            "../../tests/benchmark/models/ifcopenshell/764--column--no-materials-or-surface-styles-found--augmented.ifc"
         ).expect("Failed to read test file");
 
         let entity_index = ifc_lite_core::build_entity_index(&content);
@@ -2489,7 +2490,7 @@ mod tests {
 
         // Read the wall-with-opening file
         let content = std::fs::read_to_string(
-            "../../tests/models/buildingsmart/wall-with-opening-and-window.ifc",
+            "../../tests/benchmark/models/buildingsmart/wall-with-opening-and-window.ifc",
         )
         .expect("Failed to read test file");
 

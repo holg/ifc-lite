@@ -263,75 +263,54 @@ impl<'a> EntityScanner<'a> {
     /// Returns (entity_id, type_name, line_start, line_end)
     #[inline]
     pub fn next_entity(&mut self) -> Option<(u32, &'a str, usize, usize)> {
-        loop {
-            let remaining = &self.bytes[self.position..];
+        let remaining = &self.bytes[self.position..];
 
-            // Find next '#' that starts an entity using SIMD-accelerated search
-            let start_offset = memchr::memchr(b'#', remaining)?;
-            let line_start = self.position + start_offset;
+        // Find next '#' that starts an entity using SIMD-accelerated search
+        let start_offset = memchr::memchr(b'#', remaining)?;
+        let line_start = self.position + start_offset;
 
-            // IMPORTANT: Only parse if '#' is at start of line (after newline or at position 0)
-            // This prevents parsing references like #33 inside entity values
-            let is_line_start = line_start == 0 || self.bytes[line_start - 1] == b'\n';
-            if !is_line_start {
-                // Skip this '#' and continue searching
-                self.position = line_start + 1;
-                continue;
-            }
+        // Find the end of the line (semicolon) using SIMD
+        let line_content = &self.bytes[line_start..];
+        let end_offset = memchr::memchr(b';', line_content)?;
+        let line_end = line_start + end_offset + 1;
 
-            // Find the end of the entity (semicolon outside of quoted strings)
-            // Must skip over quoted strings which may contain semicolons
-            let line_end = self.find_entity_end(line_start)?;
-
-            // Parse entity ID (inline for speed)
-            let id_start = line_start + 1;
-            let mut id_end = id_start;
-            while id_end < line_end && self.bytes[id_end].is_ascii_digit() {
-                id_end += 1;
-            }
-
-            // Fast integer parsing without allocation
-            let id = match self.parse_u32_fast(id_start, id_end) {
-                Some(id) => id,
-                None => {
-                    // Invalid ID, skip this line
-                    self.position = line_end;
-                    continue;
-                }
-            };
-
-            // Find '=' after ID - must be immediately after digits
-            if id_end >= line_end || self.bytes[id_end] != b'=' {
-                // No '=' immediately after ID, skip
-                self.position = line_end;
-                continue;
-            }
-            let mut type_start = id_end + 1;
-
-            // Skip whitespace (inline)
-            while type_start < line_end && self.bytes[type_start].is_ascii_whitespace() {
-                type_start += 1;
-            }
-
-            // Find end of type name (at '(' or whitespace)
-            let mut type_end = type_start;
-            while type_end < line_end {
-                let b = self.bytes[type_end];
-                if b == b'(' || b.is_ascii_whitespace() {
-                    break;
-                }
-                type_end += 1;
-            }
-
-            // Safe because IFC files are ASCII
-            let type_name =
-                unsafe { std::str::from_utf8_unchecked(&self.bytes[type_start..type_end]) };
-
-            // Move position past this entity
-            self.position = line_end;
-
-            return Some((id, type_name, line_start, line_end));
+        // Parse entity ID (inline for speed)
+        let id_start = line_start + 1;
+        let mut id_end = id_start;
+        while id_end < line_end && self.bytes[id_end].is_ascii_digit() {
+            id_end += 1;
         }
+
+        // Fast integer parsing without allocation
+        let id = self.parse_u32_fast(id_start, id_end)?;
+
+        // Find '=' after ID using SIMD
+        let eq_search = &self.bytes[id_end..line_end];
+        let eq_offset = memchr::memchr(b'=', eq_search)?;
+        let mut type_start = id_end + eq_offset + 1;
+
+        // Skip whitespace (inline)
+        while type_start < line_end && self.bytes[type_start].is_ascii_whitespace() {
+            type_start += 1;
+        }
+
+        // Find end of type name (at '(' or whitespace)
+        let mut type_end = type_start;
+        while type_end < line_end {
+            let b = self.bytes[type_end];
+            if b == b'(' || b.is_ascii_whitespace() {
+                break;
+            }
+            type_end += 1;
+        }
+
+        // Safe because IFC files are ASCII
+        let type_name = unsafe { std::str::from_utf8_unchecked(&self.bytes[type_start..type_end]) };
+
+        // Move position past this entity
+        self.position = line_end;
+
+        Some((id, type_name, line_start, line_end))
     }
 
     /// Fast u32 parsing without string allocation
@@ -346,57 +325,6 @@ impl<'a> EntityScanner<'a> {
             result = result.wrapping_mul(10).wrapping_add(digit as u32);
         }
         Some(result)
-    }
-
-    /// Find the end of an entity, accounting for quoted strings that may contain semicolons
-    /// Returns position after the semicolon
-    #[inline]
-    fn find_entity_end(&self, start: usize) -> Option<usize> {
-        let mut pos = start;
-        let len = self.bytes.len();
-
-        while pos < len {
-            let b = self.bytes[pos];
-
-            if b == b'\'' {
-                // Start of single-quoted string - skip to end
-                pos += 1;
-                while pos < len {
-                    if self.bytes[pos] == b'\'' {
-                        // Check for escaped quote ('')
-                        if pos + 1 < len && self.bytes[pos + 1] == b'\'' {
-                            pos += 2; // Skip escaped quote
-                            continue;
-                        }
-                        break; // End of string
-                    }
-                    pos += 1;
-                }
-                pos += 1; // Skip closing quote
-            } else if b == b'"' {
-                // Start of double-quoted string - skip to end
-                pos += 1;
-                while pos < len {
-                    if self.bytes[pos] == b'"' {
-                        // Check for escaped quote ("")
-                        if pos + 1 < len && self.bytes[pos + 1] == b'"' {
-                            pos += 2; // Skip escaped quote
-                            continue;
-                        }
-                        break; // End of string
-                    }
-                    pos += 1;
-                }
-                pos += 1; // Skip closing quote
-            } else if b == b';' {
-                // Found the terminating semicolon
-                return Some(pos + 1);
-            } else {
-                pos += 1;
-            }
-        }
-
-        None // No semicolon found
     }
 
     /// Find all entities of a specific type

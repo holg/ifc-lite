@@ -283,8 +283,8 @@ impl ClippingProcessor {
         }
 
         // Group triangles by normal to find faces
-        type TriangleGroup = Vec<(Point3<f64>, Point3<f64>, Point3<f64>)>;
-        let mut face_groups: FxHashMap<u64, TriangleGroup> = FxHashMap::default();
+        let mut face_groups: FxHashMap<u64, Vec<(Point3<f64>, Point3<f64>, Point3<f64>)>> =
+            FxHashMap::default();
         let normal_epsilon = 0.01; // Tolerance for normal comparison
 
         for i in (0..opening_mesh.indices.len()).step_by(3) {
@@ -358,10 +358,10 @@ impl ClippingProcessor {
             };
 
         // Count edges and store original vertices
-        type QuantizedPoint = (i64, i64, i64);
-        type EdgeKey = (QuantizedPoint, QuantizedPoint);
-        type EdgeData = (usize, Point3<f64>, Point3<f64>);
-        let mut edge_count: FxHashMap<EdgeKey, EdgeData> = FxHashMap::default();
+        let mut edge_count: FxHashMap<
+            ((i64, i64, i64), (i64, i64, i64)),
+            (usize, Point3<f64>, Point3<f64>),
+        > = FxHashMap::default();
 
         for (v0, v1, v2) in triangles {
             let q0 = quantize(v0);
@@ -369,7 +369,11 @@ impl ClippingProcessor {
             let q2 = quantize(v2);
 
             // Three edges per triangle
-            for (qa, qb, pa, pb) in [(q0, q1, *v0, *v1), (q1, q2, *v1, *v2), (q2, q0, *v2, *v0)] {
+            for (qa, qb, pa, pb) in [
+                (q0, q1, *v0, *v1),
+                (q1, q2, *v1, *v2),
+                (q2, q0, *v2, *v0),
+            ] {
                 let key = make_edge_key(qa, qb);
                 edge_count
                     .entry(key)
@@ -380,7 +384,7 @@ impl ClippingProcessor {
 
         // Collect boundary edges (count == 1)
         let mut boundary_edges: Vec<(Point3<f64>, Point3<f64>)> = Vec::new();
-        for (count, pa, pb) in edge_count.values() {
+        for (_, (count, pa, pb)) in &edge_count {
             if *count == 1 {
                 boundary_edges.push((*pa, *pb));
             }
@@ -392,19 +396,13 @@ impl ClippingProcessor {
         }
 
         // Build vertex adjacency map for boundary traversal
-        type AdjacencyData = Vec<(i64, i64, i64, Point3<f64>)>;
-        let mut adjacency: FxHashMap<QuantizedPoint, AdjacencyData> = FxHashMap::default();
+        let mut adjacency: FxHashMap<(i64, i64, i64), Vec<(i64, i64, i64, Point3<f64>)>> =
+            FxHashMap::default();
         for (pa, pb) in &boundary_edges {
             let qa = quantize(pa);
             let qb = quantize(pb);
-            adjacency
-                .entry(qa)
-                .or_default()
-                .push((qb.0, qb.1, qb.2, *pb));
-            adjacency
-                .entry(qb)
-                .or_default()
-                .push((qa.0, qa.1, qa.2, *pa));
+            adjacency.entry(qa).or_default().push((qb.0, qb.1, qb.2, *pb));
+            adjacency.entry(qb).or_default().push((qa.0, qa.1, qa.2, *pa));
         }
 
         // Build ordered contour by walking the boundary
@@ -420,7 +418,12 @@ impl ClippingProcessor {
             let mut current_q = start_q;
 
             // Walk around the boundary
-            while let Some(neighbors) = adjacency.get(&current_q) {
+            loop {
+                let neighbors = match adjacency.get(&current_q) {
+                    Some(n) => n,
+                    None => break,
+                };
+
                 // Find unvisited neighbor
                 let mut found_next = false;
                 for (nqx, nqy, nqz, np) in neighbors {
@@ -449,7 +452,10 @@ impl ClippingProcessor {
         let normal = calculate_polygon_normal(&contour);
 
         // Normalize the result
-        let normalized_normal = normal.try_normalize(1e-10)?;
+        let normalized_normal = match normal.try_normalize(1e-10) {
+            Some(n) => n,
+            None => return None, // Degenerate polygon
+        };
 
         Some((contour, normalized_normal))
     }
@@ -612,6 +618,151 @@ impl ClippingProcessor {
 
         // Convert back to our Mesh format
         Self::csgrs_to_mesh(&result_csg)
+    }
+
+    /// Union two meshes together using csgrs CSG boolean operations
+    pub fn union_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
+        use csgrs::traits::CSG;
+
+        // Fast paths
+        if mesh_a.is_empty() {
+            return Ok(mesh_b.clone());
+        }
+        if mesh_b.is_empty() {
+            return Ok(mesh_a.clone());
+        }
+
+        // Convert meshes to csgrs format
+        let csg_a = Self::mesh_to_csgrs(mesh_a)?;
+        let csg_b = Self::mesh_to_csgrs(mesh_b)?;
+
+        // Perform CSG union
+        let result_csg = csg_a.union(&csg_b);
+
+        // Convert back to our Mesh format
+        Self::csgrs_to_mesh(&result_csg)
+    }
+
+    /// Union multiple meshes together
+    ///
+    /// Convenience method that sequentially unions all non-empty meshes.
+    /// Skips empty meshes to avoid unnecessary CSG operations.
+    pub fn union_meshes(&self, meshes: &[Mesh]) -> Result<Mesh> {
+        if meshes.is_empty() {
+            return Ok(Mesh::new());
+        }
+
+        if meshes.len() == 1 {
+            return Ok(meshes[0].clone());
+        }
+
+        // Start with first non-empty mesh
+        let mut result = Mesh::new();
+        let mut found_first = false;
+
+        for mesh in meshes {
+            if mesh.is_empty() {
+                continue;
+            }
+
+            if !found_first {
+                result = mesh.clone();
+                found_first = true;
+                continue;
+            }
+
+            result = self.union_mesh(&result, mesh)?;
+        }
+
+        Ok(result)
+    }
+
+    /// Subtract multiple meshes efficiently
+    ///
+    /// When void count exceeds threshold, unions all voids first
+    /// then performs a single subtraction. This is much more efficient
+    /// for elements with many openings (e.g., floors with many penetrations).
+    ///
+    /// # Arguments
+    /// * `host` - The host mesh to subtract from
+    /// * `voids` - List of void meshes to subtract
+    ///
+    /// # Returns
+    /// The host mesh with all voids subtracted
+    pub fn subtract_meshes_batched(&self, host: &Mesh, voids: &[Mesh]) -> Result<Mesh> {
+        // Filter out empty meshes
+        let non_empty_voids: Vec<&Mesh> = voids.iter().filter(|m| !m.is_empty()).collect();
+
+        if non_empty_voids.is_empty() {
+            return Ok(host.clone());
+        }
+
+        if non_empty_voids.len() == 1 {
+            return self.subtract_mesh(host, non_empty_voids[0]);
+        }
+
+        // Threshold for batching: if more than 10 voids, union them first
+        const BATCH_THRESHOLD: usize = 10;
+
+        if non_empty_voids.len() > BATCH_THRESHOLD {
+            // Union all voids into a single mesh first
+            let void_refs: Vec<Mesh> = non_empty_voids.iter().map(|m| (*m).clone()).collect();
+            let combined = self.union_meshes(&void_refs)?;
+
+            // Single subtraction
+            self.subtract_mesh(host, &combined)
+        } else {
+            // Sequential subtraction for small counts
+            let mut result = host.clone();
+
+            for void in non_empty_voids {
+                result = self.subtract_mesh(&result, void)?;
+            }
+
+            Ok(result)
+        }
+    }
+
+    /// Subtract meshes with fallback on failure
+    ///
+    /// Attempts batched subtraction, but if it fails, returns the host mesh
+    /// unchanged rather than propagating the error. This provides graceful
+    /// degradation for problematic void geometries.
+    pub fn subtract_meshes_with_fallback(&self, host: &Mesh, voids: &[Mesh]) -> Mesh {
+        match self.subtract_meshes_batched(host, voids) {
+            Ok(result) => {
+                // Validate result
+                if result.is_empty() || !self.validate_mesh(&result) {
+                    host.clone()
+                } else {
+                    result
+                }
+            }
+            Err(_) => host.clone(),
+        }
+    }
+
+    /// Validate mesh for common issues
+    fn validate_mesh(&self, mesh: &Mesh) -> bool {
+        // Check for NaN/Inf in positions
+        if mesh.positions.iter().any(|v| !v.is_finite()) {
+            return false;
+        }
+
+        // Check for NaN/Inf in normals
+        if mesh.normals.iter().any(|v| !v.is_finite()) {
+            return false;
+        }
+
+        // Check for valid triangle indices
+        let vertex_count = mesh.vertex_count();
+        for idx in &mesh.indices {
+            if *idx as usize >= vertex_count {
+                return false;
+            }
+        }
+
+        true
     }
 
     /// Clip mesh using bounding box (6 planes) - DEPRECATED: use subtract_box() instead

@@ -12,14 +12,15 @@ target/
 Cargo.lock
 **/*.rs.bk
 *.pdb
+.vercel
 
-# Build config (contains deploy credentials)
-scripts/build-config.toml
+# MkDocs build output
+site/
 
-# FFI build output (generated binaries, not source)
-crates/ifc-lite-ffi/output/
+# Rust compiled binaries in tests
+tests/test_geometry
 
-# Xcode user data
-*.xcuserstate
-xcuserdata/
-.swiftpm/
+# Debug/test scripts in wasm package
+packages/wasm/debug-*.js
+packages/wasm/benchmark.js
+packages/wasm/test-parser.js

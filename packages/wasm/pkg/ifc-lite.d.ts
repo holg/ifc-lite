@@ -51,6 +51,133 @@ export class GeoReferenceJs {
   scale: number;
 }
 
+export class GpuGeometry {
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Get IFC type name by index
+   */
+  getIfcTypeName(index: number): string | undefined;
+  /**
+   * Get metadata for a specific mesh
+   */
+  getMeshMetadata(index: number): GpuMeshMetadata | undefined;
+  /**
+   * Create a new empty GPU geometry container
+   */
+  constructor();
+  /**
+   * Get number of meshes in this geometry batch
+   */
+  readonly meshCount: number;
+  /**
+   * Get length of indices array (in u32 elements)
+   */
+  readonly indicesLen: number;
+  /**
+   * Get pointer to indices array for zero-copy view
+   */
+  readonly indicesPtr: number;
+  /**
+   * Get length of vertex data array (in f32 elements, not bytes)
+   */
+  readonly vertexDataLen: number;
+  /**
+   * Get pointer to vertex data for zero-copy view
+   *
+   * SAFETY: View is only valid until next WASM allocation!
+   * Create view, upload to GPU, then discard view immediately.
+   */
+  readonly vertexDataPtr: number;
+  /**
+   * Get total vertex count
+   */
+  readonly totalVertexCount: number;
+  /**
+   * Get byte length of indices (for GPU buffer creation)
+   */
+  readonly indicesByteLength: number;
+  /**
+   * Get total triangle count
+   */
+  readonly totalTriangleCount: number;
+  /**
+   * Get byte length of vertex data (for GPU buffer creation)
+   */
+  readonly vertexDataByteLength: number;
+  /**
+   * Check if geometry is empty
+   */
+  readonly isEmpty: boolean;
+}
+
+export class GpuInstancedGeometry {
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Create new instanced geometry
+   */
+  constructor(geometry_id: bigint);
+  readonly geometryId: bigint;
+  readonly indicesLen: number;
+  readonly indicesPtr: number;
+  readonly vertexCount: number;
+  readonly instanceCount: number;
+  readonly triangleCount: number;
+  readonly vertexDataLen: number;
+  readonly vertexDataPtr: number;
+  readonly instanceDataLen: number;
+  readonly instanceDataPtr: number;
+  readonly indicesByteLength: number;
+  readonly vertexDataByteLength: number;
+  readonly instanceExpressIdsPtr: number;
+  readonly instanceDataByteLength: number;
+}
+
+export class GpuInstancedGeometryCollection {
+  free(): void;
+  [Symbol.dispose](): void;
+  get(index: number): GpuInstancedGeometry | undefined;
+  constructor();
+  /**
+   * Get geometry by index with zero-copy access
+   * Returns a reference that provides pointer access
+   */
+  getRef(index: number): GpuInstancedGeometryRef | undefined;
+  readonly length: number;
+}
+
+export class GpuInstancedGeometryRef {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  readonly geometryId: bigint;
+  readonly indicesLen: number;
+  readonly indicesPtr: number;
+  readonly instanceCount: number;
+  readonly vertexDataLen: number;
+  readonly vertexDataPtr: number;
+  readonly instanceDataLen: number;
+  readonly instanceDataPtr: number;
+  readonly indicesByteLength: number;
+  readonly vertexDataByteLength: number;
+  readonly instanceExpressIdsPtr: number;
+  readonly instanceDataByteLength: number;
+}
+
+export class GpuMeshMetadata {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  readonly expressId: number;
+  readonly indexCount: number;
+  readonly ifcTypeIdx: number;
+  readonly indexOffset: number;
+  readonly vertexCount: number;
+  readonly vertexOffset: number;
+  readonly color: Float32Array;
+}
+
 export class IfcAPI {
   free(): void;
   [Symbol.dispose](): void;
@@ -167,6 +294,43 @@ export class IfcAPI {
    */
   parseMeshesWithRtc(content: string): MeshCollectionWithRtc;
   /**
+   * Parse IFC file and return GPU-ready geometry for zero-copy upload
+   *
+   * This method generates geometry that is:
+   * - Pre-interleaved (position + normal per vertex)
+   * - Coordinate-converted (Z-up to Y-up)
+   * - Ready for direct GPU upload via pointer access
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const gpuGeom = api.parseToGpuGeometry(ifcData);
+   *
+   * // Get WASM memory for zero-copy views
+   * const memory = api.getMemory();
+   *
+   * // Create views directly into WASM memory (NO COPY!)
+   * const vertexView = new Float32Array(
+   *   memory.buffer,
+   *   gpuGeom.vertexDataPtr,
+   *   gpuGeom.vertexDataLen
+   * );
+   * const indexView = new Uint32Array(
+   *   memory.buffer,
+   *   gpuGeom.indicesPtr,
+   *   gpuGeom.indicesLen
+   * );
+   *
+   * // Upload directly to GPU (single copy: WASM → GPU)
+   * device.queue.writeBuffer(vertexBuffer, 0, vertexView);
+   * device.queue.writeBuffer(indexBuffer, 0, indexView);
+   *
+   * // Free when done
+   * gpuGeom.free();
+   * ```
+   */
+  parseToGpuGeometry(content: string): GpuGeometry;
+  /**
    * Parse IFC file and return instanced geometry grouped by geometry hash
    * This reduces draw calls by grouping identical geometries with different transforms
    *
@@ -196,6 +360,40 @@ export class IfcAPI {
    */
   debugProcessFirstWall(content: string): string;
   /**
+   * Parse IFC file with streaming GPU-ready geometry batches
+   *
+   * Yields batches of GPU-ready geometry for progressive rendering with zero-copy upload.
+   * Uses fast-first-frame streaming: simple geometry (walls, slabs) first.
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const memory = api.getMemory();
+   *
+   * await api.parseToGpuGeometryAsync(ifcData, {
+   *   batchSize: 25,
+   *   onBatch: (gpuGeom, progress) => {
+   *     // Create zero-copy views
+   *     const vertexView = new Float32Array(
+   *       memory.buffer,
+   *       gpuGeom.vertexDataPtr,
+   *       gpuGeom.vertexDataLen
+   *     );
+   *
+   *     // Upload to GPU
+   *     device.queue.writeBuffer(vertexBuffer, 0, vertexView);
+   *
+   *     // IMPORTANT: Free immediately after upload!
+   *     gpuGeom.free();
+   *   },
+   *   onComplete: (stats) => {
+   *     console.log(`Done! ${stats.totalMeshes} meshes`);
+   *   }
+   * });
+   * ```
+   */
+  parseToGpuGeometryAsync(content: string, options: any): Promise<any>;
+  /**
    * Parse IFC file with streaming instanced geometry batches for progressive rendering
    * Groups identical geometries and yields batches of InstancedGeometry
    * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
@@ -217,6 +415,13 @@ export class IfcAPI {
    * ```
    */
   parseMeshesInstancedAsync(content: string, options: any): Promise<any>;
+  /**
+   * Parse IFC file to GPU-ready instanced geometry for zero-copy upload
+   *
+   * Groups identical geometries by hash for efficient GPU instancing.
+   * Returns a collection of instanced geometries with pointer access.
+   */
+  parseToGpuInstancedGeometry(content: string): GpuInstancedGeometryCollection;
   /**
    * Create and initialize the IFC API
    */
@@ -474,6 +679,11 @@ export interface InitOutput {
   readonly __wbg_get_georeferencejs_scale: (a: number) => number;
   readonly __wbg_get_georeferencejs_x_axis_abscissa: (a: number) => number;
   readonly __wbg_get_georeferencejs_x_axis_ordinate: (a: number) => number;
+  readonly __wbg_gpugeometry_free: (a: number, b: number) => void;
+  readonly __wbg_gpuinstancedgeometry_free: (a: number, b: number) => void;
+  readonly __wbg_gpuinstancedgeometrycollection_free: (a: number, b: number) => void;
+  readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
+  readonly __wbg_gpumeshmetadata_free: (a: number, b: number) => void;
   readonly __wbg_ifcapi_free: (a: number, b: number) => void;
   readonly __wbg_instancedata_free: (a: number, b: number) => void;
   readonly __wbg_instancedgeometry_free: (a: number, b: number) => void;
@@ -494,6 +704,56 @@ export interface InitOutput {
   readonly georeferencejs_mapToLocal: (a: number, b: number, c: number, d: number, e: number) => void;
   readonly georeferencejs_rotation: (a: number) => number;
   readonly georeferencejs_toMatrix: (a: number, b: number) => void;
+  readonly gpugeometry_getIfcTypeName: (a: number, b: number, c: number) => void;
+  readonly gpugeometry_getMeshMetadata: (a: number, b: number) => number;
+  readonly gpugeometry_indicesByteLength: (a: number) => number;
+  readonly gpugeometry_indicesLen: (a: number) => number;
+  readonly gpugeometry_indicesPtr: (a: number) => number;
+  readonly gpugeometry_isEmpty: (a: number) => number;
+  readonly gpugeometry_meshCount: (a: number) => number;
+  readonly gpugeometry_new: () => number;
+  readonly gpugeometry_totalTriangleCount: (a: number) => number;
+  readonly gpugeometry_totalVertexCount: (a: number) => number;
+  readonly gpugeometry_vertexDataByteLength: (a: number) => number;
+  readonly gpugeometry_vertexDataLen: (a: number) => number;
+  readonly gpugeometry_vertexDataPtr: (a: number) => number;
+  readonly gpuinstancedgeometry_geometryId: (a: number) => bigint;
+  readonly gpuinstancedgeometry_indicesByteLength: (a: number) => number;
+  readonly gpuinstancedgeometry_indicesLen: (a: number) => number;
+  readonly gpuinstancedgeometry_indicesPtr: (a: number) => number;
+  readonly gpuinstancedgeometry_instanceCount: (a: number) => number;
+  readonly gpuinstancedgeometry_instanceDataByteLength: (a: number) => number;
+  readonly gpuinstancedgeometry_instanceDataLen: (a: number) => number;
+  readonly gpuinstancedgeometry_instanceDataPtr: (a: number) => number;
+  readonly gpuinstancedgeometry_instanceExpressIdsPtr: (a: number) => number;
+  readonly gpuinstancedgeometry_new: (a: bigint) => number;
+  readonly gpuinstancedgeometry_triangleCount: (a: number) => number;
+  readonly gpuinstancedgeometry_vertexCount: (a: number) => number;
+  readonly gpuinstancedgeometry_vertexDataByteLength: (a: number) => number;
+  readonly gpuinstancedgeometry_vertexDataLen: (a: number) => number;
+  readonly gpuinstancedgeometrycollection_get: (a: number, b: number) => number;
+  readonly gpuinstancedgeometrycollection_getRef: (a: number, b: number) => number;
+  readonly gpuinstancedgeometrycollection_length: (a: number) => number;
+  readonly gpuinstancedgeometrycollection_new: () => number;
+  readonly gpuinstancedgeometryref_geometryId: (a: number) => bigint;
+  readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
+  readonly gpuinstancedgeometryref_indicesLen: (a: number) => number;
+  readonly gpuinstancedgeometryref_indicesPtr: (a: number) => number;
+  readonly gpuinstancedgeometryref_instanceCount: (a: number) => number;
+  readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
+  readonly gpuinstancedgeometryref_instanceDataLen: (a: number) => number;
+  readonly gpuinstancedgeometryref_instanceDataPtr: (a: number) => number;
+  readonly gpuinstancedgeometryref_instanceExpressIdsPtr: (a: number) => number;
+  readonly gpuinstancedgeometryref_vertexDataByteLength: (a: number) => number;
+  readonly gpuinstancedgeometryref_vertexDataLen: (a: number) => number;
+  readonly gpuinstancedgeometryref_vertexDataPtr: (a: number) => number;
+  readonly gpumeshmetadata_color: (a: number, b: number) => void;
+  readonly gpumeshmetadata_expressId: (a: number) => number;
+  readonly gpumeshmetadata_ifcTypeIdx: (a: number) => number;
+  readonly gpumeshmetadata_indexCount: (a: number) => number;
+  readonly gpumeshmetadata_indexOffset: (a: number) => number;
+  readonly gpumeshmetadata_vertexCount: (a: number) => number;
+  readonly gpumeshmetadata_vertexOffset: (a: number) => number;
   readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_getGeoReference: (a: number, b: number, c: number) => number;
@@ -507,19 +767,20 @@ export interface InitOutput {
   readonly ifcapi_parseMeshesInstancedAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseMeshesWithRtc: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseStreaming: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseToGpuGeometry: (a: number, b: number, c: number) => number;
+  readonly ifcapi_parseToGpuGeometryAsync: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseToGpuInstancedGeometry: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseZeroCopy: (a: number, b: number, c: number) => number;
   readonly ifcapi_version: (a: number, b: number) => void;
   readonly instancedata_color: (a: number, b: number) => void;
   readonly instancedata_expressId: (a: number) => number;
   readonly instancedata_transform: (a: number) => number;
-  readonly instancedgeometry_geometryId: (a: number) => bigint;
   readonly instancedgeometry_get_instance: (a: number, b: number) => number;
   readonly instancedgeometry_indices: (a: number) => number;
   readonly instancedgeometry_instance_count: (a: number) => number;
   readonly instancedgeometry_normals: (a: number) => number;
   readonly instancedgeometry_positions: (a: number) => number;
   readonly instancedmeshcollection_get: (a: number, b: number) => number;
-  readonly instancedmeshcollection_length: (a: number) => number;
   readonly instancedmeshcollection_totalInstances: (a: number) => number;
   readonly meshcollection_get: (a: number, b: number) => number;
   readonly meshcollection_length: (a: number) => number;
@@ -536,36 +797,39 @@ export interface InitOutput {
   readonly meshdatajs_normals: (a: number) => number;
   readonly meshdatajs_positions: (a: number) => number;
   readonly meshdatajs_triangleCount: (a: number) => number;
-  readonly meshdatajs_vertexCount: (a: number) => number;
   readonly rtcoffsetjs_isSignificant: (a: number) => number;
   readonly rtcoffsetjs_toWorld: (a: number, b: number, c: number, d: number, e: number) => void;
   readonly version: (a: number) => void;
   readonly zerocopymesh_bounds_max: (a: number, b: number) => void;
   readonly zerocopymesh_bounds_min: (a: number, b: number) => void;
-  readonly zerocopymesh_indices_len: (a: number) => number;
-  readonly zerocopymesh_indices_ptr: (a: number) => number;
-  readonly zerocopymesh_is_empty: (a: number) => number;
   readonly zerocopymesh_new: () => number;
-  readonly zerocopymesh_normals_len: (a: number) => number;
-  readonly zerocopymesh_normals_ptr: (a: number) => number;
-  readonly zerocopymesh_positions_len: (a: number) => number;
-  readonly zerocopymesh_positions_ptr: (a: number) => number;
-  readonly zerocopymesh_triangle_count: (a: number) => number;
   readonly zerocopymesh_vertex_count: (a: number) => number;
   readonly init: () => void;
+  readonly instancedmeshcollection_length: (a: number) => number;
   readonly instancedmeshcollection_totalGeometries: (a: number) => number;
+  readonly zerocopymesh_indices_len: (a: number) => number;
+  readonly zerocopymesh_normals_len: (a: number) => number;
+  readonly zerocopymesh_positions_len: (a: number) => number;
   readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
+  readonly meshdatajs_vertexCount: (a: number) => number;
+  readonly zerocopymesh_triangle_count: (a: number) => number;
   readonly get_memory: () => number;
+  readonly gpuinstancedgeometry_vertexDataPtr: (a: number) => number;
+  readonly zerocopymesh_indices_ptr: (a: number) => number;
+  readonly zerocopymesh_normals_ptr: (a: number) => number;
+  readonly zerocopymesh_positions_ptr: (a: number) => number;
+  readonly zerocopymesh_is_empty: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
-  readonly __wasm_bindgen_func_elem_302: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_301: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_682: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_681: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_716: (a: number, b: number, c: number, d: number) => void;
+  readonly instancedgeometry_geometryId: (a: number) => bigint;
+  readonly __wasm_bindgen_func_elem_377: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_376: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_673: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_672: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_707: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number, b: number) => number;
   readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_export3: (a: number) => void;

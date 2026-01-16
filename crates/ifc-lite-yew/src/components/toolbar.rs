@@ -1,6 +1,7 @@
 //! Toolbar component with tool buttons and file operations
 
 use crate::bridge::{self, EntityData, GeometryData};
+use ifc_lite_core::DecodedEntity;
 use crate::state::{
     Progress, PropertySet, PropertyValue, QuantityValue, Tool, ViewerAction, ViewerStateContext,
 };
@@ -8,6 +9,15 @@ use gloo_file::callbacks::FileReader;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
+
+/// Helper to extract entity refs from a list attribute
+fn get_ref_list(entity: &DecodedEntity, index: usize) -> Option<Vec<u32>> {
+    entity.get_list(index).map(|list| {
+        list.iter()
+            .filter_map(|v| v.as_entity_ref())
+            .collect()
+    })
+}
 
 /// Toolbar component
 #[function_component]
@@ -352,7 +362,7 @@ fn extract_properties_and_quantities(
                 let mut properties = Vec::new();
 
                 // Get HasProperties list (attribute 4)
-                if let Some(prop_refs) = prop_def.get_ref_list(4) {
+                if let Some(prop_refs) = get_ref_list(&prop_def, 4) {
                     for prop_id in prop_refs {
                         if let Ok(prop) = decoder.decode_by_id(prop_id) {
                             // IfcPropertySingleValue: (Name, Description, NominalValue, Unit)
@@ -400,7 +410,7 @@ fn extract_properties_and_quantities(
                     .unwrap_or_else(|| format!("Quantities #{}", prop_def_id));
 
                 // Get Quantities list (attribute 5)
-                if let Some(qty_refs) = prop_def.get_ref_list(5) {
+                if let Some(qty_refs) = get_ref_list(&prop_def, 5) {
                     for qty_id in qty_refs {
                         if let Ok(qty) = decoder.decode_by_id(qty_id) {
                             // IfcPhysicalQuantity subtypes: Name, Description, ...values
@@ -647,7 +657,7 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
                         entity.attributes.len()
                     ));
                     let parent_id = entity.get_ref(4);
-                    let children = entity.get_ref_list(5);
+                    let children = get_ref_list(&entity, 5);
                     bridge::log(&format!(
                         "  parent: {:?}, children: {:?}",
                         parent_id, children
@@ -662,7 +672,7 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
             "IFCRELCONTAINEDINSPATIALSTRUCTURE" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     if let Some(structure_id) = entity.get_ref(5) {
-                        if let Some(elements) = entity.get_ref_list(4) {
+                        if let Some(elements) = get_ref_list(&entity, 4) {
                             contained_in
                                 .entry(structure_id)
                                 .or_default()
@@ -680,7 +690,7 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
             "IFCRELDEFINESBYPROPERTIES" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     if let Some(prop_def_id) = entity.get_ref(5) {
-                        if let Some(related_objects) = entity.get_ref_list(4) {
+                        if let Some(related_objects) = get_ref_list(&entity, 4) {
                             for obj_id in related_objects {
                                 element_properties
                                     .entry(obj_id)
@@ -696,7 +706,7 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
             "IFCRELDEFINESBYTYPE" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     if let Some(type_id) = entity.get_ref(5) {
-                        if let Some(related_objects) = entity.get_ref_list(4) {
+                        if let Some(related_objects) = get_ref_list(&entity, 4) {
                             for obj_id in related_objects {
                                 element_to_type.insert(obj_id, type_id);
                             }

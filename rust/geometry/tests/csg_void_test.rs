@@ -8,7 +8,7 @@ use rustc_hash::FxHashMap;
 use std::fs;
 use std::path::PathBuf;
 
-fn get_test_file_path() -> Option<PathBuf> {
+fn get_test_file_path() -> PathBuf {
     // Use CARGO_MANIFEST_DIR for deterministic path resolution
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let test_file = PathBuf::from(manifest_dir)
@@ -17,23 +17,13 @@ fn get_test_file_path() -> Option<PathBuf> {
         .join("02_BIMcollab_Example_STR_random_C_ebkp.ifc");
 
     if !test_file.exists() {
-        eprintln!(
-            "Test IFC file not found at: {}. Skipping test.",
+        panic!(
+            "Test IFC file not found at: {}. Ensure the test file exists in the geometry/tests/ifc directory.",
             test_file.display()
         );
-        return None;
     }
 
-    // Check if file is an LFS pointer (starts with "version https://git-lfs")
-    if let Ok(content) = fs::read_to_string(&test_file) {
-        if content.starts_with("version https://git-lfs") {
-            eprintln!("Test IFC file is a Git LFS pointer, not actual content. Skipping test.");
-            eprintln!("Run 'git lfs pull' to fetch the actual file.");
-            return None;
-        }
-    }
-
-    Some(test_file)
+    test_file
 }
 
 fn analyze_mesh(mesh: &Mesh, name: &str) {
@@ -287,10 +277,7 @@ fn process_element_with_diagnostics(
 
 #[test]
 fn test_void_subtraction_element_276() {
-    let Some(file_path) = get_test_file_path() else {
-        eprintln!("Skipping test_void_subtraction_element_276: test file not available");
-        return;
-    };
+    let file_path = get_test_file_path();
     let content = fs::read_to_string(&file_path).expect("Failed to read IFC file");
 
     let mut decoder = EntityDecoder::new(&content);
@@ -342,10 +329,7 @@ fn test_void_subtraction_element_276() {
 
 #[test]
 fn test_void_subtraction_working_element() {
-    let Some(file_path) = get_test_file_path() else {
-        eprintln!("Skipping test_void_subtraction_working_element: test file not available");
-        return;
-    };
+    let file_path = get_test_file_path();
     let content = fs::read_to_string(&file_path).expect("Failed to read IFC file");
 
     let mut decoder = EntityDecoder::new(&content);
@@ -416,10 +400,7 @@ fn test_void_subtraction_working_element() {
     );
 
     // Basic assertions
-    assert!(
-        !mesh_with_voids.is_empty(),
-        "Mesh with voids should not be empty"
-    );
+    assert!(!mesh_with_voids.is_empty(), "Mesh with voids should not be empty");
     assert!(
         !mesh_without_voids.is_empty(),
         "Mesh without voids should not be empty"
@@ -458,10 +439,7 @@ fn test_void_subtraction_working_element() {
 #[test]
 #[ignore] // Diagnostic-only test with heavy IO/processing - no assertions
 fn compare_void_geometries() {
-    let Some(file_path) = get_test_file_path() else {
-        eprintln!("Skipping compare_void_geometries: test file not available");
-        return;
-    };
+    let file_path = get_test_file_path();
     let content = fs::read_to_string(&file_path).expect("Failed to read IFC file");
 
     let mut decoder = EntityDecoder::new(&content);

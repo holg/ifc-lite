@@ -15,13 +15,25 @@ export { MathUtils } from './math.js';
 export { SectionPlaneRenderer } from './section-plane.js';
 export * from './types.js';
 
+// Zero-copy GPU upload (new - faster, less memory)
+export {
+  ZeroCopyGpuUploader,
+  createZeroCopyUploader,
+  type WasmMemoryHandle,
+  type GpuGeometryData,
+  type GpuInstancedGeometryData,
+  type ZeroCopyMeshMetadata,
+  type ZeroCopyUploadResult,
+  type ZeroCopyInstancedUploadResult,
+} from './zero-copy-uploader.js';
+
 import { WebGPUDevice } from './device.js';
 import { RenderPipeline, InstancedRenderPipeline } from './pipeline.js';
 import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
-import type { RenderOptions, Mesh, InstancedMesh } from './types.js';
+import type { RenderOptions, PickOptions, Mesh, InstancedMesh } from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
 import type { MeshData } from '@ifc-lite/geometry';
 import { deduplicateMeshes } from '@ifc-lite/geometry';
@@ -432,9 +444,6 @@ export class Renderer {
         const device = this.device.getDevice();
         const viewProj = this.camera.getViewProjMatrix().m;
 
-        // Ensure all meshes have GPU resources (in case they were added before pipeline was ready)
-        this.ensureMeshResources();
-
         let meshes = this.scene.getMeshes();
         
         // Check if visibility filtering is active
@@ -443,9 +452,9 @@ export class Renderer {
         const hasVisibilityFiltering = hasHiddenFilter || hasIsolatedFilter;
         
         // When using batched rendering with visibility filtering, we need individual meshes
-        // Create them lazily from stored MeshData for visible elements only
+        // Create them lazily from stored MeshData for visible elements
         const batchedMeshes = this.scene.getBatchedMeshes();
-        if (hasVisibilityFiltering && batchedMeshes.length > 0 && meshes.length === 0) {
+        if (hasVisibilityFiltering && batchedMeshes.length > 0) {
             // Collect all expressIds from batched meshes
             const allExpressIds = new Set<number>();
             for (const batch of batchedMeshes) {
@@ -464,7 +473,8 @@ export class Renderer {
                 }
             }
             
-            // Create individual meshes for visible elements only
+            // Create individual meshes for visible elements that don't have meshes yet
+            // This ensures elements that were previously hidden can be shown again
             const existingMeshIds = new Set(meshes.map(m => m.expressId));
             for (const expressId of visibleExpressIds) {
                 if (!existingMeshIds.has(expressId) && this.scene.hasMeshData(expressId)) {
@@ -476,6 +486,9 @@ export class Renderer {
             // Get updated meshes list
             meshes = this.scene.getMeshes();
         }
+
+        // Ensure all meshes have GPU resources (must be AFTER creating individual meshes above)
+        this.ensureMeshResources();
 
         // Frustum culling (if enabled and spatial index available)
         if (options.enableFrustumCulling && options.spatialIndex) {
@@ -957,8 +970,9 @@ export class Renderer {
 
     /**
      * Pick object at screen coordinates
+     * Respects visibility filtering so users can only select visible elements
      */
-    async pick(x: number, y: number, options?: { isStreaming?: boolean }): Promise<number | null> {
+    async pick(x: number, y: number, options?: PickOptions): Promise<number | null> {
         if (!this.picker) {
             return null;
         }
@@ -988,8 +1002,16 @@ export class Renderer {
                 const existingExpressIds = new Set(meshes.map(m => m.expressId));
 
                 // Create picking meshes lazily from stored MeshData
+                // Only create meshes for VISIBLE elements (not hidden, and either no isolation or in isolated set)
                 for (const expressId of expressIds) {
-                    if (!existingExpressIds.has(expressId) && this.scene.hasMeshData(expressId)) {
+                    // Skip if already exists
+                    if (existingExpressIds.has(expressId)) continue;
+                    // Skip if hidden
+                    if (options?.hiddenIds?.has(expressId)) continue;
+                    // Skip if isolation is active and this entity is not isolated
+                    if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
+
+                    if (this.scene.hasMeshData(expressId)) {
                         const meshData = this.scene.getMeshData(expressId);
                         if (meshData) {
                             this.createMeshFromData(meshData);
@@ -1001,6 +1023,15 @@ export class Renderer {
                 // Get updated meshes list (includes newly created ones)
                 meshes = this.scene.getMeshes();
             }
+        }
+
+        // Apply visibility filtering to meshes before picking
+        // This ensures users can only select elements that are actually visible
+        if (options?.hiddenIds && options.hiddenIds.size > 0) {
+            meshes = meshes.filter(mesh => !options.hiddenIds!.has(mesh.expressId));
+        }
+        if (options?.isolatedIds !== null && options?.isolatedIds !== undefined) {
+            meshes = meshes.filter(mesh => options.isolatedIds!.has(mesh.expressId));
         }
 
         const viewProj = this.camera.getViewProjMatrix().m;

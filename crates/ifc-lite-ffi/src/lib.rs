@@ -3,9 +3,19 @@
 //! This crate provides cross-platform bindings to the IFC-Lite library,
 //! allowing native iOS, macOS, and Android apps to load and interact with IFC files.
 
+use ifc_lite_core::DecodedEntity;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
+
+/// Helper to extract entity refs from a list attribute
+fn get_ref_list(entity: &DecodedEntity, index: usize) -> Option<Vec<u32>> {
+    entity.get_list(index).map(|list| {
+        list.iter()
+            .filter_map(|v| v.as_entity_ref())
+            .collect()
+    })
+}
 
 // Export UniFFI scaffolding
 uniffi::setup_scaffolding!();
@@ -770,7 +780,7 @@ fn process_ifc_content(content: &str) -> Result<ProcessedIfcContent, IfcError> {
                 eprintln!("DEBUG FFI: Found IFCRELAGGREGATES #{}", id);
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     let parent_id = entity.get_ref(4);
-                    let children = entity.get_ref_list(5);
+                    let children = get_ref_list(&entity, 5);
                     eprintln!(
                         "DEBUG FFI:   parent={:?}, children={:?}",
                         parent_id,
@@ -785,7 +795,7 @@ fn process_ifc_content(content: &str) -> Result<ProcessedIfcContent, IfcError> {
             "IFCRELDECOMPOSES" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     let parent_id = entity.get_ref(4);
-                    let children = entity.get_ref_list(5);
+                    let children = get_ref_list(&entity, 5);
                     if let (Some(parent_id), Some(children)) = (parent_id, children) {
                         aggregates.entry(parent_id).or_default().extend(children);
                     }
@@ -795,7 +805,7 @@ fn process_ifc_content(content: &str) -> Result<ProcessedIfcContent, IfcError> {
             "IFCRELNESTS" => {
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     let parent_id = entity.get_ref(4);
-                    let children = entity.get_ref_list(5);
+                    let children = get_ref_list(&entity, 5);
                     if let (Some(parent_id), Some(children)) = (parent_id, children) {
                         aggregates.entry(parent_id).or_default().extend(children);
                     }
@@ -807,7 +817,7 @@ fn process_ifc_content(content: &str) -> Result<ProcessedIfcContent, IfcError> {
                 eprintln!("DEBUG FFI: Found IFCRELCONTAINEDINSPATIALSTRUCTURE #{}", id);
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     let structure_id = entity.get_ref(5);
-                    let elements = entity.get_ref_list(4);
+                    let elements = get_ref_list(&entity, 4);
                     eprintln!(
                         "DEBUG FFI:   structure_id={:?}, elements={:?}",
                         structure_id,
@@ -1281,7 +1291,7 @@ fn extract_properties(content: &str, entity_id: u32) -> Vec<PropertySet> {
         if type_name.to_uppercase() == "IFCRELDEFINESBYPROPERTIES" {
             if let Ok(entity) = decoder.decode_by_id(id) {
                 // RelatedObjects is at index 4 (list of entity refs)
-                if let Some(related) = entity.get_ref_list(4) {
+                if let Some(related) = get_ref_list(&entity, 4) {
                     if related.contains(&entity_id) {
                         // RelatingPropertyDefinition is at index 5
                         if let Some(pset_id) = entity.get_ref(5) {
@@ -1298,7 +1308,7 @@ fn extract_properties(content: &str, entity_id: u32) -> Vec<PropertySet> {
 
     for pset_id in property_set_ids {
         if let Ok(pset_entity) = decoder.decode_by_id(pset_id) {
-            let pset_type = pset_entity.type_name.to_uppercase();
+            let pset_type = pset_entity.ifc_type.to_string().to_uppercase();
 
             if pset_type == "IFCPROPERTYSET" {
                 // Name is at index 2
@@ -1310,10 +1320,10 @@ fn extract_properties(content: &str, entity_id: u32) -> Vec<PropertySet> {
                 // HasProperties is at index 4 (list of property refs)
                 let mut properties: Vec<PropertyValue> = Vec::new();
 
-                if let Some(prop_ids) = pset_entity.get_ref_list(4) {
+                if let Some(prop_ids) = get_ref_list(&pset_entity, 4) {
                     for prop_id in prop_ids {
                         if let Ok(prop_entity) = decoder.decode_by_id(prop_id) {
-                            let prop_type = prop_entity.type_name.to_uppercase();
+                            let prop_type = prop_entity.ifc_type.to_string().to_uppercase();
 
                             if prop_type == "IFCPROPERTYSINGLEVALUE" {
                                 // Name at index 0, NominalValue at index 2
@@ -1354,7 +1364,7 @@ fn extract_properties(content: &str, entity_id: u32) -> Vec<PropertySet> {
                 let mut properties: Vec<PropertyValue> = Vec::new();
 
                 // Quantities at index 5
-                if let Some(qty_ids) = pset_entity.get_ref_list(5) {
+                if let Some(qty_ids) = get_ref_list(&pset_entity, 5) {
                     for qty_id in qty_ids {
                         if let Ok(qty_entity) = decoder.decode_by_id(qty_id) {
                             // Name at index 0
@@ -1422,7 +1432,7 @@ fn extract_property_value(entity: &ifc_lite_core::DecodedEntity, index: usize) -
 fn extract_quantity_value(entity: &ifc_lite_core::DecodedEntity) -> String {
     use ifc_lite_core::AttributeValue;
 
-    let qty_type = entity.type_name.to_uppercase();
+    let qty_type = entity.ifc_type.to_string().to_uppercase();
 
     // Different quantity types have value at different indices
     let value_index = match qty_type.as_str() {

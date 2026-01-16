@@ -17,14 +17,170 @@ import { buildSpatialIndex } from '@ifc-lite/spatial';
 import {
   BinaryCacheWriter,
   BinaryCacheReader,
-  xxhash64Hex,
   type IfcDataStore as CacheDataStore,
   type GeometryData,
 } from '@ifc-lite/cache';
 import { getCached, setCached } from '../services/ifc-cache.js';
+import { IfcTypeEnum, RelationshipType, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
 const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
+
+/**
+ * Rebuild spatial hierarchy from cache data (entities + relationships)
+ * OPTIMIZED: Uses index maps for O(1) lookups instead of O(n) linear searches
+ */
+function rebuildSpatialHierarchy(
+  entities: EntityTable,
+  relationships: RelationshipGraph
+): SpatialHierarchy | undefined {
+  // PRE-BUILD INDEX MAP: O(n) once, then O(1) lookups
+  // This eliminates the O(n²) nested loops from before
+  const entityTypeMap = new Map<number, IfcTypeEnum>();
+  for (let i = 0; i < entities.count; i++) {
+    entityTypeMap.set(entities.expressId[i], entities.typeEnum[i]);
+  }
+
+  const spatialTypes = new Set([
+    IfcTypeEnum.IfcProject,
+    IfcTypeEnum.IfcSite,
+    IfcTypeEnum.IfcBuilding,
+    IfcTypeEnum.IfcBuildingStorey,
+    IfcTypeEnum.IfcSpace
+  ]);
+
+  const byStorey = new Map<number, number[]>();
+  const byBuilding = new Map<number, number[]>();
+  const bySite = new Map<number, number[]>();
+  const bySpace = new Map<number, number[]>();
+  const storeyElevations = new Map<number, number>();
+  const elementToStorey = new Map<number, number>();
+
+  // Find IfcProject
+  const projectIds = entities.getByType(IfcTypeEnum.IfcProject);
+  if (projectIds.length === 0) {
+    console.warn('[rebuildSpatialHierarchy] No IfcProject found');
+    return undefined;
+  }
+  const projectId = projectIds[0];
+
+  // Build node tree recursively - NOW O(1) lookups!
+  function buildNode(expressId: number): SpatialNode {
+    // O(1) lookup instead of O(n) linear search
+    const typeEnum = entityTypeMap.get(expressId) ?? IfcTypeEnum.Unknown;
+    const name = entities.getName(expressId) || `Entity #${expressId}`;
+
+    // Get contained elements via IfcRelContainedInSpatialStructure
+    const rawContainedElements = relationships.getRelated(
+      expressId,
+      RelationshipType.ContainsElements,
+      'forward'
+    );
+
+    // Filter out spatial structure elements - O(1) per element now!
+    const containedElements = rawContainedElements.filter(id => {
+      const elemType = entityTypeMap.get(id);
+      return elemType !== undefined && !spatialTypes.has(elemType);
+    });
+
+    // Get aggregated children via IfcRelAggregates
+    const aggregatedChildren = relationships.getRelated(
+      expressId,
+      RelationshipType.Aggregates,
+      'forward'
+    );
+
+    // Filter to spatial structure types and recurse - O(1) per child now!
+    const childNodes: SpatialNode[] = [];
+    for (const childId of aggregatedChildren) {
+      const childType = entityTypeMap.get(childId);
+      if (childType && spatialTypes.has(childType) && childType !== IfcTypeEnum.IfcProject) {
+        childNodes.push(buildNode(childId));
+      }
+    }
+
+    // Add elements to appropriate maps
+    if (typeEnum === IfcTypeEnum.IfcBuildingStorey) {
+      byStorey.set(expressId, containedElements);
+    } else if (typeEnum === IfcTypeEnum.IfcBuilding) {
+      byBuilding.set(expressId, containedElements);
+    } else if (typeEnum === IfcTypeEnum.IfcSite) {
+      bySite.set(expressId, containedElements);
+    } else if (typeEnum === IfcTypeEnum.IfcSpace) {
+      bySpace.set(expressId, containedElements);
+    }
+
+    return {
+      expressId,
+      type: typeEnum,
+      name,
+      children: childNodes,
+      elements: containedElements,
+    };
+  }
+
+  const projectNode = buildNode(projectId);
+
+  // Build reverse lookup map: elementId -> storeyId
+  for (const [storeyId, elementIds] of byStorey) {
+    for (const elementId of elementIds) {
+      elementToStorey.set(elementId, storeyId);
+    }
+  }
+
+  // Pre-build space lookup for O(1) getContainingSpace
+  const elementToSpace = new Map<number, number>();
+  for (const [spaceId, elementIds] of bySpace) {
+    for (const elementId of elementIds) {
+      elementToSpace.set(elementId, spaceId);
+    }
+  }
+
+  return {
+    project: projectNode,
+    byStorey,
+    byBuilding,
+    bySite,
+    bySpace,
+    storeyElevations,
+    elementToStorey,
+
+    getStoreyElements(storeyId: number): number[] {
+      return byStorey.get(storeyId) ?? [];
+    },
+
+    getStoreyByElevation(): number | null {
+      return null;
+    },
+
+    getContainingSpace(elementId: number): number | null {
+      return elementToSpace.get(elementId) ?? null;
+    },
+
+    getPath(elementId: number): SpatialNode[] {
+      const path: SpatialNode[] = [];
+      const storeyId = elementToStorey.get(elementId);
+      if (!storeyId) return path;
+
+      const findPath = (node: SpatialNode, targetId: number): boolean => {
+        path.push(node);
+        if (node.elements.includes(targetId)) {
+          return true;
+        }
+        for (const child of node.children) {
+          if (findPath(child, targetId)) {
+            return true;
+          }
+        }
+        path.pop();
+        return false;
+      };
+
+      findPath(projectNode, elementId);
+      return path;
+    },
+  };
+}
 
 export function useIfc() {
   const {
@@ -46,10 +202,8 @@ export function useIfc() {
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
 
   /**
-   * Load from binary cache (INSTANT path)
-   * Key optimizations:
-   * 1. Single setGeometryResult call instead of batched appendGeometryBatch
-   * 2. Build spatial index in requestIdleCallback (non-blocking)
+   * Load from binary cache - INSTANT load for maximum speed
+   * Large cached models load all geometry at once for fastest total time
    */
   const loadFromCache = useCallback(async (
     cacheBuffer: ArrayBuffer,
@@ -59,8 +213,7 @@ export function useIfc() {
       console.time('[useIfc] cache-load');
       setProgress({ phase: 'Loading from cache', percent: 10 });
 
-      // IMPORTANT: Reset geometry first so Viewport detects this as a new file
-      // This ensures camera fitting and bounds are properly reset
+      // Reset geometry first so Viewport detects this as a new file
       setGeometryResult(null);
 
       const reader = new BinaryCacheReader();
@@ -69,10 +222,20 @@ export function useIfc() {
       // Convert cache data store to viewer data store format
       const dataStore = result.dataStore as any;
 
+      // Rebuild spatial hierarchy from cache data (cache doesn't serialize it)
+      if (!dataStore.spatialHierarchy && dataStore.entities && dataStore.relationships) {
+        console.time('[useIfc] rebuild-spatial-hierarchy');
+        dataStore.spatialHierarchy = rebuildSpatialHierarchy(
+          dataStore.entities,
+          dataStore.relationships
+        );
+        console.timeEnd('[useIfc] rebuild-spatial-hierarchy');
+      }
+
       if (result.geometry) {
         const { meshes, coordinateInfo, totalVertices, totalTriangles } = result.geometry;
 
-        // INSTANT: Set ALL geometry in ONE state update (no batching!)
+        // INSTANT: Set ALL geometry in ONE call - fastest for cached models
         setGeometryResult({
           meshes,
           totalVertices,
@@ -85,25 +248,16 @@ export function useIfc() {
 
         // Build spatial index in background (non-blocking)
         if (meshes.length > 0) {
-          // Use requestIdleCallback for non-blocking BVH build
-          const buildIndex = () => {
-            console.time('[useIfc] spatial-index-background');
-            try {
-              const spatialIndex = buildSpatialIndex(meshes);
-              dataStore.spatialIndex = spatialIndex;
-              // Update store with spatial index (doesn't affect rendering)
-              setIfcDataStore({ ...dataStore });
-              console.timeEnd('[useIfc] spatial-index-background');
-            } catch (err) {
-              console.warn('[useIfc] Failed to build spatial index:', err);
-            }
-          };
-
-          // Schedule for idle time, or fallback to setTimeout
           if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(buildIndex, { timeout: 1000 });
-          } else {
-            setTimeout(buildIndex, 100);
+            (window as any).requestIdleCallback(() => {
+              try {
+                const spatialIndex = buildSpatialIndex(meshes);
+                dataStore.spatialIndex = spatialIndex;
+                setIfcDataStore({ ...dataStore });
+              } catch (err) {
+                console.warn('[useIfc] Failed to build spatial index:', err);
+              }
+            }, { timeout: 2000 });
           }
         }
       } else {
@@ -112,7 +266,7 @@ export function useIfc() {
 
       setProgress({ phase: 'Complete (from cache)', percent: 100 });
       console.timeEnd('[useIfc] cache-load');
-      console.log(`[useIfc] INSTANT load: ${fileName} from cache (${result.geometry?.meshes.length || 0} meshes)`);
+      console.log(`[useIfc] INSTANT cache load: ${fileName} (${result.geometry?.meshes.length || 0} meshes)`);
 
       return true;
     } catch (err) {
@@ -178,14 +332,14 @@ export function useIfc() {
       // Read file
       const buffer = await file.arrayBuffer();
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
+      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB`);
 
-      // Compute cache key (hash of file content)
-      setProgress({ phase: 'Checking cache', percent: 5 });
-      const cacheKey = xxhash64Hex(buffer);
-      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, hash: ${cacheKey}`);
+      // INSTANT cache lookup: Use filename + size as key (no hashing!)
+      // Same filename + same size = same file (fast and reliable enough)
+      const cacheKey = `${file.name}-${buffer.byteLength}`;
 
-      // Try to load from cache first (only for files above threshold)
       if (buffer.byteLength >= CACHE_SIZE_THRESHOLD) {
+        setProgress({ phase: 'Checking cache', percent: 5 });
         const cachedBuffer = await getCached(cacheKey);
         if (cachedBuffer) {
           const success = await loadFromCache(cachedBuffer, file.name);
@@ -193,43 +347,36 @@ export function useIfc() {
             setLoading(false);
             return;
           }
-          // Cache load failed, fall through to normal parsing
-          console.log('[useIfc] Cache load failed, falling back to parsing');
         }
       }
 
-      // Cache miss or small file - parse normally
-      setProgress({ phase: 'Parsing IFC', percent: 10 });
+      // Cache miss - start geometry streaming IMMEDIATELY
+      setProgress({ phase: 'Starting geometry streaming', percent: 10 });
 
-      // Parse IFC using columnar parser
-      const parser = new IfcParser();
-      const dataStore = await parser.parseColumnar(buffer, {
-        onProgress: (prog) => {
-          setProgress({
-            phase: `Parsing: ${prog.phase}`,
-            percent: 10 + (prog.percent * 0.4),
-          });
-        },
-      });
-
-      setIfcDataStore(dataStore);
-      setProgress({ phase: 'Triangulating geometry', percent: 50 });
-
-      // Process geometry with streaming for progressive rendering
-      // Quality: Fast for speed, Balanced for quality, High for best quality
+      // Initialize geometry processor first (WASM init is fast if already loaded)
       const geometryProcessor = new GeometryProcessor({
         useWorkers: false,
-        quality: GeometryQuality.Balanced // Can be GeometryQuality.Fast, Balanced, or High
+        quality: GeometryQuality.Balanced
       });
       await geometryProcessor.init();
 
-      // Pass entity index for priority-based loading
-      const entityIndexMap = new Map<number, any>();
-      if (dataStore.entityIndex?.byId) {
-        for (const [id, ref] of dataStore.entityIndex.byId) {
-          entityIndexMap.set(id, { type: ref.type });
-        }
-      }
+      // Start data model parsing in PARALLEL (non-blocking)
+      // This parses entities, properties, relationships for the UI panels
+      const parser = new IfcParser();
+      const dataStorePromise = parser.parseColumnar(buffer, {
+        onProgress: (prog) => {
+          // Update progress in background - don't block geometry
+          console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
+        },
+      });
+
+      // Handle data model completion in background
+      dataStorePromise.then(dataStore => {
+        console.log('[useIfc] Data model parsing complete - enabling property panel');
+        setIfcDataStore(dataStore);
+      }).catch(err => {
+        console.error('[useIfc] Data model parsing failed:', err);
+      });
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -247,14 +394,19 @@ export function useIfc() {
       let totalWaitTime = 0; // Time waiting for WASM to yield batches
       let totalProcessTime = 0; // Time processing batches in JS
 
+      // OPTIMIZATION: Accumulate meshes and batch state updates
+      // First batch renders immediately, then accumulate for throughput
+      let pendingMeshes: MeshData[] = [];
+      let lastRenderTime = 0;
+      const RENDER_INTERVAL_MS = 50; // Max 20 state updates per second after first batch
+
       try {
-        console.log(`[useIfc] Starting adaptive processing (file size: ${fileSizeMB.toFixed(2)}MB)...`);
+        console.log(`[useIfc] Starting geometry streaming IMMEDIATELY (file size: ${fileSizeMB.toFixed(2)}MB)...`);
         console.time('[useIfc] total-processing');
 
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
           sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
-          batchSize: 25,
-          entityIndex: entityIndexMap,
+          batchSize: 100, // Large batches for maximum throughput
         })) {
           const eventReceived = performance.now();
           const waitTime = eventReceived - lastBatchTime;
@@ -277,23 +429,34 @@ export function useIfc() {
               // Collect meshes for BVH building
               allMeshes.push(...event.meshes);
               finalCoordinateInfo = event.coordinateInfo;
-
-              // Append mesh batch to store (triggers React re-render)
-              appendGeometryBatch(event.meshes, event.coordinateInfo);
               totalMeshes = event.totalSoFar;
 
-              // Update progress (50-95% for geometry processing)
-              const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal / 10, totalMeshes)) * 45);
-              setProgress({
-                phase: `Rendering geometry (${totalMeshes} meshes)`,
-                percent: progressPercent
-              });
+              // Accumulate meshes for batched rendering
+              pendingMeshes.push(...event.meshes);
+
+              // FIRST BATCH: Render immediately for fast first frame
+              // SUBSEQUENT: Throttle to reduce React re-renders
+              const timeSinceLastRender = eventReceived - lastRenderTime;
+              const shouldRender = batchCount === 1 || timeSinceLastRender >= RENDER_INTERVAL_MS;
+
+              if (shouldRender && pendingMeshes.length > 0) {
+                appendGeometryBatch(pendingMeshes, event.coordinateInfo);
+                pendingMeshes = [];
+                lastRenderTime = eventReceived;
+
+                // Update progress
+                const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal / 10, totalMeshes)) * 45);
+                setProgress({
+                  phase: `Rendering geometry (${totalMeshes} meshes)`,
+                  percent: progressPercent
+                });
+              }
 
               const processTime = performance.now() - processStart;
               totalProcessTime += processTime;
 
-              // Log batch timing (first 5, then every 10th)
-              if (batchCount <= 5 || batchCount % 10 === 0) {
+              // Log batch timing (first 5, then every 20th)
+              if (batchCount <= 5 || batchCount % 20 === 0) {
                 console.log(
                   `[useIfc] Batch #${batchCount}: ${event.meshes.length} meshes, ` +
                   `wait: ${waitTime.toFixed(0)}ms, process: ${processTime.toFixed(0)}ms, ` +
@@ -303,8 +466,14 @@ export function useIfc() {
               break;
             }
             case 'complete':
+              // Flush any remaining pending meshes
+              if (pendingMeshes.length > 0) {
+                appendGeometryBatch(pendingMeshes, event.coordinateInfo);
+                pendingMeshes = [];
+              }
+
               console.log(
-                `[useIfc] Processing complete: ${batchCount} batches, ${event.totalMeshes} meshes\n` +
+                `[useIfc] Geometry streaming complete: ${batchCount} batches, ${event.totalMeshes} meshes\n` +
                 `  Total wait (WASM): ${totalWaitTime.toFixed(0)}ms\n` +
                 `  Total process (JS): ${totalProcessTime.toFixed(0)}ms\n` +
                 `  First batch at: ${batchCount > 0 ? '(see Batch #1 above)' : 'N/A'}`
@@ -316,34 +485,44 @@ export function useIfc() {
               // Update geometry result with final coordinate info
               updateCoordinateInfo(event.coordinateInfo);
 
-              // Build spatial index from meshes
-              if (allMeshes.length > 0) {
-                setProgress({ phase: 'Building spatial index', percent: 95 });
-                console.time('[useIfc] spatial-index');
-                try {
-                  const spatialIndex = buildSpatialIndex(allMeshes);
-                  (dataStore as any).spatialIndex = spatialIndex;
-                  setIfcDataStore(dataStore);
-                  console.timeEnd('[useIfc] spatial-index');
-                } catch (err) {
-                  console.timeEnd('[useIfc] spatial-index');
-                  console.warn('[useIfc] Failed to build spatial index:', err);
-                }
-              }
-
               setProgress({ phase: 'Complete', percent: 100 });
 
-              // Cache the result in the background (for files above threshold)
-              if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && allMeshes.length > 0 && finalCoordinateInfo) {
-                // Don't await - let it run in background
-                const geometryData: GeometryData = {
-                  meshes: allMeshes,
-                  totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
-                  totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
-                  coordinateInfo: finalCoordinateInfo,
-                };
-                saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
-              }
+              // Build spatial index and cache in background (non-blocking)
+              // Wait for data model to complete first
+              dataStorePromise.then(dataStore => {
+                // Build spatial index from meshes (in background)
+                if (allMeshes.length > 0) {
+                  const buildIndex = () => {
+                    console.time('[useIfc] spatial-index-background');
+                    try {
+                      const spatialIndex = buildSpatialIndex(allMeshes);
+                      (dataStore as any).spatialIndex = spatialIndex;
+                      setIfcDataStore({ ...dataStore });
+                      console.timeEnd('[useIfc] spatial-index-background');
+                    } catch (err) {
+                      console.warn('[useIfc] Failed to build spatial index:', err);
+                    }
+                  };
+
+                  // Use requestIdleCallback if available
+                  if ('requestIdleCallback' in window) {
+                    (window as any).requestIdleCallback(buildIndex, { timeout: 2000 });
+                  } else {
+                    setTimeout(buildIndex, 100);
+                  }
+                }
+
+                // Cache the result in the background (for files above threshold)
+                if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && allMeshes.length > 0 && finalCoordinateInfo) {
+                  const geometryData: GeometryData = {
+                    meshes: allMeshes,
+                    totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
+                    totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
+                    coordinateInfo: finalCoordinateInfo,
+                  };
+                  saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
+                }
+              });
               break;
           }
 

@@ -35,11 +35,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const clearHover = useViewerStore((state) => state.clearHover);
   const hoverTooltipsEnabled = useViewerStore((state) => state.hoverTooltipsEnabled);
   const openContextMenu = useViewerStore((state) => state.openContextMenu);
-  const startBoxSelect = useViewerStore((state) => state.startBoxSelect);
-  const updateBoxSelect = useViewerStore((state) => state.updateBoxSelect);
-  const endBoxSelect = useViewerStore((state) => state.endBoxSelect);
-  const boxSelect = useViewerStore((state) => state.boxSelect);
-  const setSelectedEntityIds = useViewerStore((state) => state.setSelectedEntityIds);
   const toggleSelection = useViewerStore((state) => state.toggleSelection);
   const pendingMeasurePoint = useViewerStore((state) => state.pendingMeasurePoint);
   const addMeasurePoint = useViewerStore((state) => state.addMeasurePoint);
@@ -117,7 +112,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const activeToolRef = useRef<string>(activeTool);
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
   const sectionPlaneRef = useRef(sectionPlane);
-  const boxSelectRef = useRef(boxSelect);
   const geometryRef = useRef<MeshData[] | null>(geometry);
 
   // Hover throttling
@@ -132,7 +126,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
-  useEffect(() => { boxSelectRef.current = boxSelect; }, [boxSelect]);
   useEffect(() => {
     geometryRef.current = geometry;
   }, [geometry]);
@@ -170,6 +163,18 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       const camera = renderer.getCamera();
       const mouseState = mouseStateRef.current;
       const touchState = touchStateRef.current;
+
+      // Helper function to get current pick options with visibility filtering
+      // This ensures users can only select visible elements (respects hide/isolate/type visibility)
+      function getPickOptions() {
+        const currentProgress = useViewerStore.getState().progress;
+        const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+        return {
+          isStreaming: currentIsStreaming,
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+        };
+      }
 
       // Helper function to get entity bounds (min/max) - defined early for callbacks
       function getEntityBounds(
@@ -372,13 +377,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         // Determine action based on active tool and mouse button
         const tool = activeToolRef.current;
 
-        // Box selection tool
-        if (tool === 'boxselect' && e.button === 0) {
-          startBoxSelect(e.clientX, e.clientY);
-          canvas.style.cursor = 'crosshair';
-          return;
-        }
-
         const willOrbit = !(tool === 'pan' || e.button === 1 || e.button === 2 ||
           (tool === 'select' && e.shiftKey) ||
           (tool !== 'orbit' && tool !== 'select' && e.shiftKey));
@@ -391,9 +389,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const y = e.clientY - rect.top;
 
           // Pick at cursor position - orbit around what user is clicking on
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Uses visibility filtering so hidden elements don't affect orbit pivot
+          const pickedId = await renderer.pick(x, y, getPickOptions());
           if (pickedId !== null) {
             const center = getEntityCenter(geometryRef.current, pickedId);
             if (center) {
@@ -444,12 +441,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             mouseState.didDrag = true;
           }
 
-          // Handle box selection
-          if (tool === 'boxselect' && mouseState.button === 0) {
-            updateBoxSelect(e.clientX, e.clientY);
-            return;
-          }
-
           if (mouseState.isPanning || tool === 'pan') {
             camera.pan(dx, dy, false);
           } else if (tool === 'walk') {
@@ -481,9 +472,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const now = Date.now();
           if (now - lastHoverCheckRef.current > hoverThrottleMs) {
             lastHoverCheckRef.current = now;
-            const currentProgress = useViewerStore.getState().progress;
-            const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-            const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+            // Uses visibility filtering so hidden elements don't show hover tooltips
+            const pickedId = await renderer.pick(x, y, getPickOptions());
             if (pickedId) {
               setHoverState({ entityId: pickedId, screenX: e.clientX, screenY: e.clientY });
             } else {
@@ -516,7 +506,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-        const pickedId = await renderer.pick(x, y);
+        // Uses visibility filtering so hidden elements don't appear in context menu
+        const pickedId = await renderer.pick(x, y, getPickOptions());
         openContextMenu(pickedId, e.clientX, e.clientY);
       });
 
@@ -554,9 +545,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
         // Handle measure tool clicks
         if (tool === 'measure') {
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Uses visibility filtering so measurements only snap to visible elements
+          const pickedId = await renderer.pick(x, y, getPickOptions());
           if (pickedId) {
             // Get 3D position from mesh vertices (simplified - uses center of clicked entity)
             // In a full implementation, you'd use ray-triangle intersection
@@ -580,81 +570,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           return;
         }
 
-        // Handle box selection completion
-        if (tool === 'boxselect') {
-          // Get box selection coordinates (in screen space relative to viewport)
-          const bs = boxSelectRef.current;
-          const geom = geometryRef.current;
-          if (bs.isSelecting && geom) {
-            const selectionRect = {
-              left: Math.min(bs.startX, bs.currentX),
-              right: Math.max(bs.startX, bs.currentX),
-              top: Math.min(bs.startY, bs.currentY),
-              bottom: Math.max(bs.startY, bs.currentY),
-            };
-
-            // Check if selection is large enough
-            const selectionWidth = selectionRect.right - selectionRect.left;
-            const selectionHeight = selectionRect.bottom - selectionRect.top;
-
-            if (selectionWidth > 5 && selectionHeight > 5) {
-              // Convert selection rect from viewport to canvas coordinates
-              const canvasRect = canvas.getBoundingClientRect();
-              const canvasLeft = selectionRect.left - canvasRect.left;
-              const canvasRight = selectionRect.right - canvasRect.left;
-              const canvasTop = selectionRect.top - canvasRect.top;
-              const canvasBottom = selectionRect.bottom - canvasRect.top;
-
-              // Find all entities whose center projects into the selection box
-              const selectedIds: number[] = [];
-
-              for (const mesh of geom) {
-                // Calculate mesh bounding box center
-                if (mesh.positions.length >= 3) {
-                  let minX = Infinity, minY = Infinity, minZ = Infinity;
-                  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-
-                  for (let i = 0; i < mesh.positions.length; i += 3) {
-                    const x = mesh.positions[i];
-                    const y = mesh.positions[i + 1];
-                    const z = mesh.positions[i + 2];
-                    minX = Math.min(minX, x);
-                    minY = Math.min(minY, y);
-                    minZ = Math.min(minZ, z);
-                    maxX = Math.max(maxX, x);
-                    maxY = Math.max(maxY, y);
-                    maxZ = Math.max(maxZ, z);
-                  }
-
-                  const center = {
-                    x: (minX + maxX) / 2,
-                    y: (minY + maxY) / 2,
-                    z: (minZ + maxZ) / 2,
-                  };
-
-                  // Project center to screen space
-                  const screenPos = camera.projectToScreen(center, canvas.width, canvas.height);
-
-                  if (screenPos) {
-                    // Check if screen position is within selection box
-                    if (screenPos.x >= canvasLeft && screenPos.x <= canvasRight &&
-                      screenPos.y >= canvasTop && screenPos.y <= canvasBottom) {
-                      selectedIds.push(mesh.expressId);
-                    }
-                  }
-                }
-              }
-
-              // Select all found entities
-              if (selectedIds.length > 0) {
-                setSelectedEntityIds(selectedIds);
-              }
-            }
-          }
-          endBoxSelect();
-          return;
-        }
-
         const now = Date.now();
         const timeSinceLastClick = now - lastClickTimeRef.current;
         const clickPos = { x, y };
@@ -664,20 +579,16 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           Math.abs(clickPos.x - lastClickPosRef.current.x) < 5 &&
           Math.abs(clickPos.y - lastClickPosRef.current.y) < 5) {
           // Double-click - isolate element
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Uses visibility filtering so only visible elements can be selected
+          const pickedId = await renderer.pick(x, y, getPickOptions());
           if (pickedId) {
             setSelectedEntityId(pickedId);
           }
           lastClickTimeRef.current = 0;
           lastClickPosRef.current = null;
         } else {
-          // Single click
-          // Get current progress state (not from closure)
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Single click - uses visibility filtering so only visible elements can be selected
+          const pickedId = await renderer.pick(x, y, getPickOptions());
 
           // Multi-selection with Ctrl/Cmd
           if (e.ctrlKey || e.metaKey) {
@@ -722,9 +633,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const x = touchState.touches[0].clientX - rect.left;
           const y = touchState.touches[0].clientY - rect.top;
 
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Uses visibility filtering so hidden elements don't affect orbit pivot
+          const pickedId = await renderer.pick(x, y, getPickOptions());
           if (pickedId !== null) {
             const center = getEntityCenter(geometryRef.current, pickedId);
             if (center) {
