@@ -299,7 +299,8 @@ impl BatchBuilder {
     }
 }
 
-/// System to spawn batched meshes when scene data changes
+/// System to spawn per-entity meshes when scene data changes
+/// Each IFC entity gets its own Bevy mesh for proper picking/selection
 fn spawn_meshes_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -313,7 +314,7 @@ fn spawn_meshes_system(
     }
 
     let mesh_count = scene_data.meshes.len();
-    log(&format!("[Bevy] Batching {} meshes for GPU", mesh_count));
+    log(&format!("[Bevy] Spawning {} meshes", mesh_count));
 
     // Despawn existing entities and batches
     for entity in existing_entities.iter() {
@@ -323,47 +324,109 @@ fn spawn_meshes_system(
         commands.entity(entity).despawn();
     }
 
-    // Estimate capacity (rough: 100 verts per mesh average)
-    let vertex_hint = mesh_count * 100;
-    let index_hint = mesh_count * 300;
-
-    let mut opaque_batch = BatchBuilder::with_capacity(vertex_hint, index_hint);
-    let mut transparent_batch = BatchBuilder::with_capacity(vertex_hint / 10, index_hint / 10);
-
     // Track bounds
     let mut scene_min = Vec3::splat(f32::INFINITY);
     let mut scene_max = Vec3::splat(f32::NEG_INFINITY);
 
-    // Process all meshes - group by transparency
-    for ifc_mesh in &scene_data.meshes {
-        let is_transparent = ifc_mesh.color[3] < 1.0;
-        let transform = ifc_mesh.get_transform();
+    // Cache materials by color to reduce duplicates
+    let mut material_cache: FxHashMap<[u8; 4], Handle<StandardMaterial>> = FxHashMap::default();
 
-        // Compute entity bounds
+    // Process each mesh as individual entity (required for picking)
+    for ifc_mesh in &scene_data.meshes {
+        let vertex_count = ifc_mesh.positions.len() / 3;
+        if vertex_count == 0 {
+            continue;
+        }
+
+        let is_transparent = ifc_mesh.color[3] < 1.0;
+
+        // Build mesh with coordinate conversion (Z-up to Y-up)
+        let mut positions = Vec::with_capacity(vertex_count);
+        let mut normals = Vec::with_capacity(vertex_count);
+
+        for i in 0..vertex_count {
+            let idx = i * 3;
+            // Convert from IFC Z-up to Bevy Y-up
+            positions.push([
+                ifc_mesh.positions[idx],
+                ifc_mesh.positions[idx + 2],  // Z -> Y
+                -ifc_mesh.positions[idx + 1], // -Y -> Z
+            ]);
+
+            if ifc_mesh.normals.len() == ifc_mesh.positions.len() {
+                normals.push([
+                    ifc_mesh.normals[idx],
+                    ifc_mesh.normals[idx + 2],
+                    -ifc_mesh.normals[idx + 1],
+                ]);
+            } else {
+                normals.push([0.0, 1.0, 0.0]);
+            }
+        }
+
+        // Compute bounds
         let mut entity_min = Vec3::splat(f32::INFINITY);
         let mut entity_max = Vec3::splat(f32::NEG_INFINITY);
-        for i in (0..ifc_mesh.positions.len()).step_by(3) {
-            let pos = Vec3::new(
-                ifc_mesh.positions[i],
-                ifc_mesh.positions[i + 2],
-                -ifc_mesh.positions[i + 1],
-            );
-            let world_pos = transform.transform_point(pos);
-            entity_min = entity_min.min(world_pos);
-            entity_max = entity_max.max(world_pos);
-            scene_min = scene_min.min(world_pos);
-            scene_max = scene_max.max(world_pos);
+        for pos in &positions {
+            let p = Vec3::from_array(*pos);
+            entity_min = entity_min.min(p);
+            entity_max = entity_max.max(p);
         }
+        scene_min = scene_min.min(entity_min);
+        scene_max = scene_max.max(entity_max);
 
-        // Add to appropriate batch
-        if is_transparent {
-            transparent_batch.add_mesh(ifc_mesh);
+        // Recompute normals if they seem invalid
+        let normals = if normals.iter().all(|n| n[1] == 1.0 && n[0] == 0.0) {
+            compute_flat_normals(&positions, &ifc_mesh.indices)
         } else {
-            opaque_batch.add_mesh(ifc_mesh);
-        }
+            normals
+        };
 
-        // Spawn lightweight entity for selection/visibility (no mesh, just metadata)
+        // Create mesh
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+        mesh.insert_indices(Indices::U32(ifc_mesh.indices.clone()));
+
+        // Get or create material (cache by quantized color)
+        let color_key = [
+            (ifc_mesh.color[0] * 255.0) as u8,
+            (ifc_mesh.color[1] * 255.0) as u8,
+            (ifc_mesh.color[2] * 255.0) as u8,
+            (ifc_mesh.color[3] * 255.0) as u8,
+        ];
+
+        let material_handle = material_cache.entry(color_key).or_insert_with(|| {
+            let color = Color::srgba(
+                ifc_mesh.color[0],
+                ifc_mesh.color[1],
+                ifc_mesh.color[2],
+                ifc_mesh.color[3],
+            );
+            let material = StandardMaterial {
+                base_color: color,
+                metallic: 0.0,
+                perceptual_roughness: if is_transparent { 0.1 } else { 0.6 },
+                reflectance: if is_transparent { 0.5 } else { 0.3 },
+                double_sided: true,
+                cull_mode: None,
+                alpha_mode: if is_transparent {
+                    AlphaMode::Blend
+                } else {
+                    AlphaMode::Opaque
+                },
+                ..default()
+            };
+            materials.add(material)
+        });
+
+        // Spawn entity with mesh (required for picking)
         commands.spawn((
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(material_handle.clone()),
             IfcEntity {
                 id: ifc_mesh.entity_id,
                 entity_type: ifc_mesh.entity_type.clone(),
@@ -373,68 +436,8 @@ fn spawn_meshes_system(
                 min: entity_min,
                 max: entity_max,
             },
-            Transform::default(),
+            ifc_mesh.get_transform(),
             Visibility::default(),
-        ));
-    }
-
-    // Spawn opaque batch
-    if !opaque_batch.is_empty() {
-        log(&format!(
-            "[Bevy] Opaque batch: {} vertices, {} triangles",
-            opaque_batch.vertex_count(),
-            opaque_batch.triangle_count()
-        ));
-
-        let mesh = opaque_batch.build();
-        let material = StandardMaterial {
-            base_color: Color::WHITE,
-            metallic: 0.0,
-            perceptual_roughness: 0.6,
-            reflectance: 0.3,
-            double_sided: true,
-            cull_mode: None,
-            // Use vertex colors
-            ..default()
-        };
-
-        commands.spawn((
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(material)),
-            Transform::default(),
-            BatchedMesh {
-                is_transparent: false,
-            },
-        ));
-    }
-
-    // Spawn transparent batch
-    if !transparent_batch.is_empty() {
-        log(&format!(
-            "[Bevy] Transparent batch: {} vertices, {} triangles",
-            transparent_batch.vertex_count(),
-            transparent_batch.triangle_count()
-        ));
-
-        let mesh = transparent_batch.build();
-        let material = StandardMaterial {
-            base_color: Color::WHITE,
-            metallic: 0.0,
-            perceptual_roughness: 0.1,
-            reflectance: 0.5,
-            double_sided: true,
-            cull_mode: None,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        };
-
-        commands.spawn((
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(material)),
-            Transform::default(),
-            BatchedMesh {
-                is_transparent: true,
-            },
         ));
     }
 
@@ -451,7 +454,7 @@ fn spawn_meshes_system(
     }
 
     log(&format!(
-        "[Bevy] Batching complete: {} meshes -> 2 draw calls",
+        "[Bevy] Spawned {} entities with meshes",
         mesh_count
     ));
 
