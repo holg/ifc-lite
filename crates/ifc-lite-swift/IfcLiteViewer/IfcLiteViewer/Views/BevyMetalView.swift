@@ -116,8 +116,6 @@ class BevyViewController {
 
         isRunning = true
         startDisplayLink()
-
-        print("[BevyViewController] Started with scale factor: \(scaleFactor)")
     }
 
     /// Stop the Bevy app and clean up
@@ -134,8 +132,6 @@ class BevyViewController {
 
         isRunning = false
         metalView = nil
-
-        print("[BevyViewController] Stopped")
     }
 
     /// Process a single frame

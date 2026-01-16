@@ -66,8 +66,8 @@ pub struct MeshData {
     pub positions: Vec<f32>,
     pub normals: Vec<f32>,
     pub indices: Vec<u32>,
-    pub color: Vec<f32>,      // RGBA
-    pub transform: Vec<f32>,  // 4x4 matrix
+    pub color: Vec<f32>,     // RGBA
+    pub transform: Vec<f32>, // 4x4 matrix
 }
 
 /// Scene bounds (AABB)
@@ -132,7 +132,7 @@ pub struct CameraState {
 impl Default for CameraState {
     fn default() -> Self {
         Self {
-            azimuth: 0.785,    // 45 degrees
+            azimuth: 0.785,   // 45 degrees
             elevation: 0.615, // ~35 degrees (isometric)
             distance: 100.0,
             target_x: 0.0,
@@ -184,6 +184,7 @@ impl Default for SectionPlane {
 }
 
 /// Internal scene data
+#[derive(Default)]
 struct SceneData {
     meshes: Vec<MeshData>,
     entities: Vec<EntityInfo>,
@@ -202,25 +203,6 @@ struct SceneData {
     // Original content for property lookups
     #[allow(dead_code)]
     content: Option<String>,
-}
-
-impl Default for SceneData {
-    fn default() -> Self {
-        Self {
-            meshes: Vec::new(),
-            entities: Vec::new(),
-            spatial_tree: None,
-            bounds: None,
-            selected_ids: HashSet::new(),
-            hovered_id: None,
-            hidden_ids: HashSet::new(),
-            isolated_ids: None,
-            storey_filter: None,
-            camera: CameraState::default(),
-            section_plane: SectionPlane::default(),
-            content: None,
-        }
-    }
 }
 
 /// Main IFC Scene interface - thread-safe
@@ -247,8 +229,9 @@ impl IfcScene {
 
     /// Load IFC from bytes
     pub fn load_bytes(&self, data: Vec<u8>) -> Result<LoadResult, IfcError> {
-        let content = String::from_utf8(data)
-            .map_err(|e| IfcError::ParseError { msg: format!("Invalid UTF-8: {}", e) })?;
+        let content = String::from_utf8(data).map_err(|e| IfcError::ParseError {
+            msg: format!("Invalid UTF-8: {}", e),
+        })?;
         self.load_string(content)
     }
 
@@ -257,8 +240,7 @@ impl IfcScene {
         let start = std::time::Instant::now();
 
         // Parse and process the IFC content
-        let (meshes, entities, spatial_tree, bounds) =
-            process_ifc_content(&content)?;
+        let (meshes, entities, spatial_tree, bounds) = process_ifc_content(&content)?;
 
         let load_time_ms = start.elapsed().as_millis() as u64;
 
@@ -301,7 +283,12 @@ impl IfcScene {
 
     /// Get entity by ID
     pub fn get_entity(&self, id: u64) -> Option<EntityInfo> {
-        self.data.read().entities.iter().find(|e| e.id == id).cloned()
+        self.data
+            .read()
+            .entities
+            .iter()
+            .find(|e| e.id == id)
+            .cloned()
     }
 
     /// Get spatial hierarchy tree
@@ -321,7 +308,12 @@ impl IfcScene {
 
     /// Get mesh for specific entity
     pub fn get_mesh(&self, entity_id: u64) -> Option<MeshData> {
-        self.data.read().meshes.iter().find(|m| m.entity_id == entity_id).cloned()
+        self.data
+            .read()
+            .meshes
+            .iter()
+            .find(|m| m.entity_id == entity_id)
+            .cloned()
     }
 
     /// Get properties for entity
@@ -406,7 +398,10 @@ impl IfcScene {
         let data = self.data.read();
         VisibilityState {
             hidden_ids: data.hidden_ids.iter().copied().collect(),
-            isolated_ids: data.isolated_ids.as_ref().map(|s| s.iter().copied().collect()),
+            isolated_ids: data
+                .isolated_ids
+                .as_ref()
+                .map(|s| s.iter().copied().collect()),
             storey_filter: data.storey_filter.clone(),
         }
     }
@@ -444,8 +439,14 @@ impl IfcScene {
             .iter()
             .filter(|e| {
                 !data.hidden_ids.contains(&e.id)
-                    && data.isolated_ids.as_ref().map_or(true, |iso| iso.contains(&e.id))
-                    && data.storey_filter.as_ref().map_or(true, |sf| e.storey.as_ref() == Some(sf))
+                    && data
+                        .isolated_ids
+                        .as_ref()
+                        .is_none_or(|iso| iso.contains(&e.id))
+                    && data
+                        .storey_filter
+                        .as_ref()
+                        .is_none_or(|sf| e.storey.as_ref() == Some(sf))
             })
             .count() as u32
     }
@@ -487,10 +488,16 @@ struct SpatialInfo {
     elevation: Option<f32>,
 }
 
+/// Result type for processed IFC content
+type ProcessedIfcContent = (
+    Vec<MeshData>,
+    Vec<EntityInfo>,
+    Option<SpatialNode>,
+    Option<SceneBounds>,
+);
+
 /// Process IFC content and extract meshes, entities, and spatial tree
-fn process_ifc_content(
-    content: &str,
-) -> Result<(Vec<MeshData>, Vec<EntityInfo>, Option<SpatialNode>, Option<SceneBounds>), IfcError> {
+fn process_ifc_content(content: &str) -> Result<ProcessedIfcContent, IfcError> {
     use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
     use ifc_lite_geometry::GeometryRouter;
     use std::collections::HashMap;
@@ -525,14 +532,22 @@ fn process_ifc_content(
         if type_upper.contains("REL") {
             rel_count += 1;
             if rel_count <= 5 {
-                eprintln!("DEBUG FFI: Found relationship entity #{}: {}", id, type_name);
+                eprintln!(
+                    "DEBUG FFI: Found relationship entity #{}: {}",
+                    id, type_name
+                );
             }
         }
 
         // Debug: check for specific IDs we know are IFCRELAGGREGATES
         if id == 38331 || id == 38275 || id == 38276 {
-            eprintln!("DEBUG FFI: Entity #{} has type '{}' (len={}, bytes={:?})",
-                id, type_name, type_name.len(), type_name.as_bytes());
+            eprintln!(
+                "DEBUG FFI: Entity #{} has type '{}' (len={}, bytes={:?})",
+                id,
+                type_name,
+                type_name.len(),
+                type_name.as_bytes()
+            );
         }
 
         // Parse spatial structure entities
@@ -626,7 +641,11 @@ fn process_ifc_content(
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     let parent_id = entity.get_ref(4);
                     let children = entity.get_ref_list(5);
-                    eprintln!("DEBUG FFI:   parent={:?}, children={:?}", parent_id, children.as_ref().map(|c| c.len()));
+                    eprintln!(
+                        "DEBUG FFI:   parent={:?}, children={:?}",
+                        parent_id,
+                        children.as_ref().map(|c| c.len())
+                    );
                     if let (Some(parent_id), Some(children)) = (parent_id, children) {
                         aggregates.entry(parent_id).or_default().extend(children);
                     }
@@ -659,7 +678,11 @@ fn process_ifc_content(
                 if let Ok(entity) = decoder.decode_by_id(id) {
                     let structure_id = entity.get_ref(5);
                     let elements = entity.get_ref_list(4);
-                    eprintln!("DEBUG FFI:   structure_id={:?}, elements={:?}", structure_id, elements.as_ref().map(|e| e.len()));
+                    eprintln!(
+                        "DEBUG FFI:   structure_id={:?}, elements={:?}",
+                        structure_id,
+                        elements.as_ref().map(|e| e.len())
+                    );
                     if let Some(structure_id) = structure_id {
                         if let Some(elements) = elements {
                             contained_in
@@ -781,8 +804,13 @@ fn process_ifc_content(
 
         // Debug first few meshes
         if meshes.len() < 3 {
-            eprintln!("DEBUG FFI Mesh #{}: positions={}, normals={}, indices={}",
-                id, mesh.positions.len(), mesh.normals.len(), mesh.indices.len());
+            eprintln!(
+                "DEBUG FFI Mesh #{}: positions={}, normals={}, indices={}",
+                id,
+                mesh.positions.len(),
+                mesh.normals.len(),
+                mesh.indices.len()
+            );
         }
 
         meshes.push(MeshData {
@@ -794,10 +822,7 @@ fn process_ifc_content(
             indices: mesh.indices,
             color: color.to_vec(),
             transform: vec![
-                1.0, 0.0, 0.0, 0.0,
-                0.0, 1.0, 0.0, 0.0,
-                0.0, 0.0, 1.0, 0.0,
-                0.0, 0.0, 0.0, 1.0,
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
             ],
         });
     }
@@ -820,11 +845,26 @@ fn process_ifc_content(
 
     // ============ Build spatial tree ============
     // Debug output
-    eprintln!("DEBUG FFI: First pass scanned {} entities total", entity_count);
-    eprintln!("DEBUG FFI: Total relationship entities found: {}", rel_count);
-    eprintln!("DEBUG FFI: Found {} spatial entities", spatial_entities.len());
-    eprintln!("DEBUG FFI: Found {} aggregate relationships", aggregates.len());
-    eprintln!("DEBUG FFI: Found {} containment relationships", contained_in.len());
+    eprintln!(
+        "DEBUG FFI: First pass scanned {} entities total",
+        entity_count
+    );
+    eprintln!(
+        "DEBUG FFI: Total relationship entities found: {}",
+        rel_count
+    );
+    eprintln!(
+        "DEBUG FFI: Found {} spatial entities",
+        spatial_entities.len()
+    );
+    eprintln!(
+        "DEBUG FFI: Found {} aggregate relationships",
+        aggregates.len()
+    );
+    eprintln!(
+        "DEBUG FFI: Found {} containment relationships",
+        contained_in.len()
+    );
 
     // If no relationships found, infer hierarchy from entity types
     // Standard hierarchy: Project -> Site -> Building -> Storey -> Space
@@ -856,21 +896,30 @@ fn process_ifc_content(
                 aggregates.entry(proj_id).or_default().extend(sites.clone());
             } else if !buildings.is_empty() {
                 // If no sites, project contains buildings directly
-                aggregates.entry(proj_id).or_default().extend(buildings.clone());
+                aggregates
+                    .entry(proj_id)
+                    .or_default()
+                    .extend(buildings.clone());
             }
         }
 
         // Sites -> Buildings
         for &site_id in &sites {
             if !buildings.is_empty() {
-                aggregates.entry(site_id).or_default().extend(buildings.clone());
+                aggregates
+                    .entry(site_id)
+                    .or_default()
+                    .extend(buildings.clone());
             }
         }
 
         // Buildings -> Storeys
         for &building_id in &buildings {
             if !storeys.is_empty() {
-                aggregates.entry(building_id).or_default().extend(storeys.clone());
+                aggregates
+                    .entry(building_id)
+                    .or_default()
+                    .extend(storeys.clone());
             }
         }
 
@@ -879,12 +928,16 @@ fn process_ifc_content(
         if !spaces.is_empty() && !storeys.is_empty() {
             // For now, put all spaces under the first storey with "00" or "ground" in name
             // or just the first storey if none match
-            let ground_storey = storeys.iter()
+            let ground_storey = storeys
+                .iter()
                 .find(|&&id| {
-                    spatial_entities.get(&id)
+                    spatial_entities
+                        .get(&id)
                         .map(|info| {
                             let name = info.name.to_lowercase();
-                            name.contains("00") || name.contains("ground") || name.contains("erdgeschoss")
+                            name.contains("00")
+                                || name.contains("ground")
+                                || name.contains("erdgeschoss")
                         })
                         .unwrap_or(false)
                 })
@@ -892,16 +945,33 @@ fn process_ifc_content(
                 .copied();
 
             if let Some(storey_id) = ground_storey {
-                contained_in.entry(storey_id).or_default().extend(spaces.clone());
+                contained_in
+                    .entry(storey_id)
+                    .or_default()
+                    .extend(spaces.clone());
             }
         }
 
-        eprintln!("DEBUG FFI: Inferred {} aggregate relationships", aggregates.len());
-        eprintln!("DEBUG FFI: projects={}, sites={}, buildings={}, storeys={}, spaces={}",
-            projects.len(), sites.len(), buildings.len(), storeys.len(), spaces.len());
+        eprintln!(
+            "DEBUG FFI: Inferred {} aggregate relationships",
+            aggregates.len()
+        );
+        eprintln!(
+            "DEBUG FFI: projects={}, sites={}, buildings={}, storeys={}, spaces={}",
+            projects.len(),
+            sites.len(),
+            buildings.len(),
+            storeys.len(),
+            spaces.len()
+        );
         for (parent, children) in &aggregates {
             if let Some(p_info) = spatial_entities.get(parent) {
-                eprintln!("DEBUG FFI:   {} ({}) -> {} children", p_info.name, p_info.entity_type, children.len());
+                eprintln!(
+                    "DEBUG FFI:   {} ({}) -> {} children",
+                    p_info.name,
+                    p_info.entity_type,
+                    children.len()
+                );
             }
         }
     }
@@ -1042,27 +1112,27 @@ fn get_element_color(entity_type: &str) -> [f32; 4] {
     let upper = entity_type.to_uppercase();
 
     if upper.contains("WALL") {
-        [0.95, 0.92, 0.85, 1.0]  // Warm off-white
+        [0.95, 0.92, 0.85, 1.0] // Warm off-white
     } else if upper.contains("SLAB") || upper.contains("FLOOR") {
-        [0.75, 0.75, 0.78, 1.0]  // Cool gray
+        [0.75, 0.75, 0.78, 1.0] // Cool gray
     } else if upper.contains("ROOF") {
-        [0.7, 0.45, 0.35, 1.0]   // Terracotta
+        [0.7, 0.45, 0.35, 1.0] // Terracotta
     } else if upper.contains("BEAM") || upper.contains("COLUMN") {
-        [0.55, 0.55, 0.6, 1.0]   // Steel blue-gray
+        [0.55, 0.55, 0.6, 1.0] // Steel blue-gray
     } else if upper.contains("DOOR") {
-        [0.6, 0.45, 0.3, 1.0]    // Warm wood
+        [0.6, 0.45, 0.3, 1.0] // Warm wood
     } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
-        [0.6, 0.8, 0.95, 0.4]    // Sky blue, transparent
+        [0.6, 0.8, 0.95, 0.4] // Sky blue, transparent
     } else if upper.contains("STAIR") || upper.contains("RAILING") {
-        [0.65, 0.6, 0.55, 1.0]   // Warm gray
+        [0.65, 0.6, 0.55, 1.0] // Warm gray
     } else if upper.contains("COVERING") {
-        [0.9, 0.88, 0.82, 1.0]   // Light cream
+        [0.9, 0.88, 0.82, 1.0] // Light cream
     } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
-        [0.7, 0.55, 0.4, 1.0]    // Light wood
+        [0.7, 0.55, 0.4, 1.0] // Light wood
     } else if upper.contains("PIPE") || upper.contains("DUCT") || upper.contains("CABLE") {
-        [0.4, 0.6, 0.4, 1.0]     // Industrial green
+        [0.4, 0.6, 0.4, 1.0] // Industrial green
     } else {
-        [0.8, 0.78, 0.75, 1.0]   // Default warm gray
+        [0.8, 0.78, 0.75, 1.0] // Default warm gray
     }
 }
 
@@ -1273,11 +1343,11 @@ mod tests {
 
     #[test]
     fn test_spatial_tree() {
-        let content = std::fs::read_to_string("../../tests/test.ifc")
-            .expect("Failed to read test.ifc");
+        let content =
+            std::fs::read_to_string("../../tests/test.ifc").expect("Failed to read test.ifc");
 
-        let (meshes, entities, spatial_tree, bounds) = process_ifc_content(&content)
-            .expect("Failed to process IFC");
+        let (meshes, entities, spatial_tree, bounds) =
+            process_ifc_content(&content).expect("Failed to process IFC");
 
         println!("Meshes: {}", meshes.len());
         println!("Entities: {}", entities.len());
@@ -1288,7 +1358,12 @@ mod tests {
             println!("Root: {} ({})", tree.name, tree.node_type);
             println!("Children: {}", tree.children.len());
             for child in &tree.children {
-                println!("  - {} ({}) with {} children", child.name, child.node_type, child.children.len());
+                println!(
+                    "  - {} ({}) with {} children",
+                    child.name,
+                    child.node_type,
+                    child.children.len()
+                );
             }
         }
 
@@ -1302,8 +1377,8 @@ mod tests {
 
         println!("File size: {} bytes", content.len());
 
-        let (meshes, entities, spatial_tree, bounds) = process_ifc_content(&content)
-            .expect("Failed to process IFC");
+        let (meshes, entities, spatial_tree, bounds) =
+            process_ifc_content(&content).expect("Failed to process IFC");
 
         println!("Meshes: {}", meshes.len());
         println!("Entities: {}", entities.len());
@@ -1314,13 +1389,26 @@ mod tests {
             println!("Root: {} ({})", tree.name, tree.node_type);
             println!("Children: {}", tree.children.len());
             for child in &tree.children {
-                println!("  - {} ({}) with {} children", child.name, child.node_type, child.children.len());
+                println!(
+                    "  - {} ({}) with {} children",
+                    child.name,
+                    child.node_type,
+                    child.children.len()
+                );
                 for grandchild in &child.children {
-                    println!("    - {} ({}) with {} children", grandchild.name, grandchild.node_type, grandchild.children.len());
+                    println!(
+                        "    - {} ({}) with {} children",
+                        grandchild.name,
+                        grandchild.node_type,
+                        grandchild.children.len()
+                    );
                 }
             }
         }
 
-        assert!(spatial_tree.is_some(), "Spatial tree should be built for duplex.ifc");
+        assert!(
+            spatial_tree.is_some(),
+            "Spatial tree should be built for duplex.ifc"
+        );
     }
 }

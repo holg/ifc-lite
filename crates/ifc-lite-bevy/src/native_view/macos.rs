@@ -4,7 +4,10 @@
 
 use super::{MacOSViewObj, SendSyncWrapper};
 use core_graphics::geometry::CGRect;
-use raw_window_handle::{DisplayHandle, HandleError, RawDisplayHandle, RawWindowHandle, WindowHandle, AppKitDisplayHandle, AppKitWindowHandle};
+use raw_window_handle::{
+    AppKitDisplayHandle, AppKitWindowHandle, DisplayHandle, HandleError, RawDisplayHandle,
+    RawWindowHandle, WindowHandle,
+};
 
 /// Get the view size from the NSView
 pub fn get_view_size(view: *mut std::ffi::c_void) -> (f32, f32) {
@@ -28,7 +31,9 @@ pub fn get_view_size(view: *mut std::ffi::c_void) -> (f32, f32) {
 }
 
 /// Get window handle for macOS NSView
-pub fn get_window_handle(view_obj: &SendSyncWrapper<MacOSViewObj>) -> Result<WindowHandle<'_>, HandleError> {
+pub fn get_window_handle(
+    view_obj: &SendSyncWrapper<MacOSViewObj>,
+) -> Result<WindowHandle<'_>, HandleError> {
     let handle = AppKitWindowHandle::new(std::ptr::NonNull::new(view_obj.view as *mut _).unwrap());
 
     let raw = RawWindowHandle::AppKit(handle);

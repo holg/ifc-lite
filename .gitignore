@@ -15,3 +15,11 @@ Cargo.lock
 
 # Build config (contains deploy credentials)
 scripts/build-config.toml
+
+# FFI build output (generated binaries, not source)
+crates/ifc-lite-ffi/output/
+
+# Xcode user data
+*.xcuserstate
+xcuserdata/
+.swiftpm/

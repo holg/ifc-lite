@@ -4,7 +4,10 @@
 
 use super::{IOSViewObj, SendSyncWrapper};
 use core_graphics::geometry::CGRect;
-use raw_window_handle::{DisplayHandle, HandleError, RawDisplayHandle, RawWindowHandle, WindowHandle, UiKitDisplayHandle, UiKitWindowHandle};
+use raw_window_handle::{
+    DisplayHandle, HandleError, RawDisplayHandle, RawWindowHandle, UiKitDisplayHandle,
+    UiKitWindowHandle, WindowHandle,
+};
 
 /// Get the view size from the UIView
 pub fn get_view_size(view: *mut std::ffi::c_void) -> (f32, f32) {
@@ -28,8 +31,11 @@ pub fn get_view_size(view: *mut std::ffi::c_void) -> (f32, f32) {
 }
 
 /// Get window handle for iOS UIView
-pub fn get_window_handle(view_obj: &SendSyncWrapper<IOSViewObj>) -> Result<WindowHandle<'_>, HandleError> {
-    let mut handle = UiKitWindowHandle::new(std::ptr::NonNull::new(view_obj.view as *mut _).unwrap());
+pub fn get_window_handle(
+    view_obj: &SendSyncWrapper<IOSViewObj>,
+) -> Result<WindowHandle<'_>, HandleError> {
+    let mut handle =
+        UiKitWindowHandle::new(std::ptr::NonNull::new(view_obj.view as *mut _).unwrap());
 
     let raw = RawWindowHandle::UiKit(handle);
     // SAFETY: The view pointer is valid for the lifetime of the AppView

@@ -65,9 +65,6 @@ class ViewerViewModel: ObservableObject {
     init() {
         self.scene = IfcScene()
         initLibrary()
-
-        // Debug: print when initialized
-        fputs("DEBUG SWIFT: ViewModel initialized\n", stderr)
     }
 
     // MARK: - File Loading
@@ -109,27 +106,6 @@ class ViewerViewModel: ObservableObject {
                     self.storeyFilter = nil
                     self.expandedNodes.removeAll()
 
-                    // Debug output
-                    fputs("DEBUG SWIFT: Loaded \(self.entities.count) entities, \(self.meshes.count) meshes\n", stderr)
-                    fputs("DEBUG SWIFT: spatialTree = \(self.spatialTree != nil ? "present with root: \(self.spatialTree!.name)" : "nil")\n", stderr)
-
-                    // Debug mesh data
-                    if !self.meshes.isEmpty {
-                        let first = self.meshes[0]
-                        fputs("DEBUG SWIFT: First mesh #\(first.entityId) - positions: \(first.positions.count), indices: \(first.indices.count), normals: \(first.normals.count)\n", stderr)
-                        if first.positions.count >= 3 {
-                            fputs("DEBUG SWIFT:   First position: [\(first.positions[0]), \(first.positions[1]), \(first.positions[2])]\n", stderr)
-                        } else {
-                            fputs("DEBUG SWIFT:   positions array too small! count=\(first.positions.count)\n", stderr)
-                        }
-                    } else {
-                        fputs("DEBUG SWIFT: No meshes received!\n", stderr)
-                    }
-
-                    if let tree = self.spatialTree {
-                        self.printTreeDebug(tree, depth: 0)
-                    }
-
                     // Auto-expand root and first level of spatial tree
                     if let tree = self.spatialTree {
                         self.expandedNodes.insert(tree.id)
@@ -147,7 +123,6 @@ class ViewerViewModel: ObservableObject {
                 await MainActor.run {
                     self.loadError = error.localizedDescription
                     self.isLoading = false
-                    print("DEBUG: Load error: \(error)")
                 }
             }
         }
@@ -299,18 +274,6 @@ class ViewerViewModel: ObservableObject {
         ids.insert(node.id)
         for child in node.children {
             collectAllNodeIds(child, into: &ids)
-        }
-    }
-
-    /// Print spatial tree for debugging
-    private func printTreeDebug(_ node: SpatialNode, depth: Int) {
-        let indent = String(repeating: "  ", count: depth)
-        fputs("DEBUG TREE: \(indent)\(node.nodeType): \(node.name) (\(node.children.count) children)\n", stderr)
-        for child in node.children.prefix(10) {  // Limit to avoid huge output
-            printTreeDebug(child, depth: depth + 1)
-        }
-        if node.children.count > 10 {
-            fputs("DEBUG TREE: \(indent)  ... and \(node.children.count - 10) more\n", stderr)
         }
     }
 }

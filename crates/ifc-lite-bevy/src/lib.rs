@@ -3,6 +3,9 @@
 //! Bevy-based 3D viewer for IFC models with WebGPU/WebGL2 rendering.
 //! Supports orbit/pan/zoom camera controls, entity selection, and section planes.
 
+// Allow unexpected_cfgs from objc crate's msg_send! macro used in native_view
+#![allow(unexpected_cfgs)]
+
 pub mod camera;
 pub mod mesh;
 pub mod picking;

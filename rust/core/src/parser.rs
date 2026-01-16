@@ -325,7 +325,8 @@ impl<'a> EntityScanner<'a> {
             }
 
             // Safe because IFC files are ASCII
-            let type_name = unsafe { std::str::from_utf8_unchecked(&self.bytes[type_start..type_end]) };
+            let type_name =
+                unsafe { std::str::from_utf8_unchecked(&self.bytes[type_start..type_end]) };
 
             // Move position past this entity
             self.position = line_end;

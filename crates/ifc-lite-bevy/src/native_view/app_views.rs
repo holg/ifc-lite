@@ -43,7 +43,11 @@ impl AppViews {
 
     /// Create a window from a native view object
     #[cfg(target_os = "macos")]
-    pub fn create_window(&mut self, view_obj: super::MacOSViewObj, entity: Entity) -> &AppViewWindow {
+    pub fn create_window(
+        &mut self,
+        view_obj: super::MacOSViewObj,
+        entity: Entity,
+    ) -> &AppViewWindow {
         let view = AppView::new(view_obj);
         let id = Uuid::new_v4();
 

@@ -15,7 +15,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 [features]
 default = []
 webgl2 = []
-native-view = []  # Enable embedded native view support (iOS/macOS)
+native-view = [] # Enable embedded native view support (iOS/macOS)
 
 [dependencies]
 # Core IFC parsing and geometry
@@ -75,43 +75,6 @@ bevy = { version = "0.18", default-features = false, features = [
     "zstd_rust",
 ] }
 
-# iOS dependencies
-[target.'cfg(target_os = "ios")'.dependencies]
-objc = "0.2"
-core-graphics = "0.24"
-bevy = { version = "0.18", default-features = false, features = [
-    "bevy_asset",
-    "bevy_winit",
-    "bevy_core_pipeline",
-    "bevy_pbr",
-    "bevy_render",
-    "bevy_state",
-    "bevy_gizmos",
-    "bevy_picking",
-    "tonemapping_luts",
-    "png",
-    "zstd_rust",
-] }
-
-# macOS dependencies
-[target.'cfg(target_os = "macos")'.dependencies]
-objc = "0.2"
-core-graphics = "0.24"
-bevy = { version = "0.18", default-features = false, features = [
-    "bevy_asset",
-    "bevy_winit",
-    "bevy_core_pipeline",
-    "bevy_pbr",
-    "bevy_render",
-    "bevy_state",
-    "bevy_gizmos",
-    "bevy_picking",
-    "multi_threaded",
-    "tonemapping_luts",
-    "png",
-    "zstd_rust",
-] }
-
 # WASM build: add webgl2 feature to Bevy
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 base64 = "0.22"
@@ -140,3 +103,40 @@ web-sys = { version = "0.3", features = [
     "Storage",
     "console",
 ] }
+
+# iOS dependencies
+[target.'cfg(target_os = "ios")'.dependencies]
+bevy = { version = "0.18", default-features = false, features = [
+    "bevy_asset",
+    "bevy_winit",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_state",
+    "bevy_gizmos",
+    "bevy_picking",
+    "tonemapping_luts",
+    "png",
+    "zstd_rust",
+] }
+core-graphics = "0.24"
+objc = "0.2"
+
+# macOS dependencies
+[target.'cfg(target_os = "macos")'.dependencies]
+bevy = { version = "0.18", default-features = false, features = [
+    "bevy_asset",
+    "bevy_winit",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_state",
+    "bevy_gizmos",
+    "bevy_picking",
+    "multi_threaded",
+    "tonemapping_luts",
+    "png",
+    "zstd_rust",
+] }
+core-graphics = "0.24"
+objc = "0.2"

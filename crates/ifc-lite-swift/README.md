@@ -64,50 +64,14 @@ swift run
 ## Features
 
 - [x] IFC file loading (via file dialog or drag & drop)
-- [x] Hierarchy panel with type grouping
+- [x] Hierarchy panel with spatial structure (Project > Site > Building > Storey)
 - [x] Search/filter entities
-- [x] Entity selection
-- [x] Properties panel
+- [x] Entity selection (click in hierarchy or 3D view)
+- [x] Properties panel with IFC property sets
 - [x] Visibility control (hide/show/isolate)
-- [x] Dark/light mode
-- [ ] 3D viewport (placeholder - needs Metal integration)
-- [ ] Camera controls (orbit, pan, zoom)
-- [ ] Entity picking in 3D view
+- [x] 3D viewport with SceneKit rendering
+- [x] Camera controls (orbit, pan, zoom)
+- [x] Zoom to entity
+- [x] Entity picking in 3D view
 - [ ] Section planes
 - [ ] Measurements
-
-## TODO: 3D Viewport Integration
-
-The `ViewportView.swift` is currently a placeholder. To add real 3D rendering:
-
-### Option 1: SceneKit (easiest)
-```swift
-import SceneKit
-
-struct SceneKitView: NSViewRepresentable {
-    let meshes: [MeshData]
-
-    func makeNSView(context: Context) -> SCNView {
-        let scnView = SCNView()
-        scnView.scene = buildScene(from: meshes)
-        scnView.allowsCameraControl = true
-        return scnView
-    }
-
-    func buildScene(from meshes: [MeshData]) -> SCNScene {
-        let scene = SCNScene()
-        for mesh in meshes {
-            let geometry = buildGeometry(from: mesh)
-            let node = SCNNode(geometry: geometry)
-            scene.rootNode.addChildNode(node)
-        }
-        return scene
-    }
-}
-```
-
-### Option 2: Metal (best performance)
-Create a custom `MTKView` wrapper and use the mesh data directly.
-
-### Option 3: Embedded Bevy (same renderer as web)
-Compile `ifc-lite-bevy` for iOS/macOS and embed as a Metal view.

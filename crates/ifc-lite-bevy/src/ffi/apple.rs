@@ -3,8 +3,7 @@
 //! These functions are called from Swift to control the Bevy app.
 
 use crate::{
-    mesh::IfcMesh, native_view::AppViews, EntityInfo, IfcSceneData, IfcViewerPlugin,
-    ViewerSettings,
+    mesh::IfcMesh, native_view::AppViews, EntityInfo, IfcSceneData, IfcViewerPlugin, ViewerSettings,
 };
 use bevy::prelude::*;
 use std::ffi::c_void;
@@ -314,7 +313,10 @@ pub unsafe extern "C" fn camera_home(bevy_app: *mut BevyApp) {
 
     let app = &mut (*bevy_app).app;
 
-    if let Some(mut controller) = app.world_mut().get_resource_mut::<crate::CameraController>() {
+    if let Some(mut controller) = app
+        .world_mut()
+        .get_resource_mut::<crate::CameraController>()
+    {
         controller.home();
     }
 }
@@ -337,10 +339,9 @@ pub unsafe extern "C" fn camera_fit_all(bevy_app: *mut BevyApp) {
         .get_resource::<IfcSceneData>()
         .and_then(|data| data.bounds.clone());
 
-    if let (Some(bounds), Some(mut controller)) = (
-        bounds,
-        world.get_resource_mut::<crate::CameraController>(),
-    ) {
+    if let (Some(bounds), Some(mut controller)) =
+        (bounds, world.get_resource_mut::<crate::CameraController>())
+    {
         controller.fit_bounds(bounds.min, bounds.max);
     }
 }
@@ -358,7 +359,10 @@ pub unsafe extern "C" fn camera_focus_entity(bevy_app: *mut BevyApp, entity_id: 
     let app = &mut (*bevy_app).app;
 
     // Set pending focus - the system will handle it
-    if let Some(mut pending) = app.world_mut().get_resource_mut::<crate::mesh::PendingFocus>() {
+    if let Some(mut pending) = app
+        .world_mut()
+        .get_resource_mut::<crate::mesh::PendingFocus>()
+    {
         pending.entity_id = Some(entity_id);
     }
 }

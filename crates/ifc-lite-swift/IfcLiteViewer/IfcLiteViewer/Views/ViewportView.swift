@@ -36,42 +36,6 @@ struct ViewportView: View {
                 // SceneKit 3D view
                 SceneKitView()
                     .environmentObject(viewModel)
-                    .onAppear {
-                        print("DEBUG: SceneKitView appeared")
-                    }
-
-                // Overlay with model info
-                VStack {
-                    HStack {
-                        Text("3D View Active")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                            .padding(4)
-                            .background(Color.black.opacity(0.5))
-                            .cornerRadius(4)
-                        Spacer()
-                    }
-                    .padding()
-
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text("\(viewModel.meshes.count) meshes")
-                            Text("\(formatVertexCount()) vertices")
-                            if let bounds = viewModel.bounds {
-                                Text(formatBounds(bounds))
-                            }
-                            Text("Load time: \(viewModel.loadTimeMs)ms")
-                        }
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(8)
-                        .background(.ultraThinMaterial)
-                        .cornerRadius(8)
-                        .padding()
-                    }
-                }
             } else if viewModel.isLoading {
                 // Loading state
                 VStack(spacing: 16) {
@@ -87,23 +51,6 @@ struct ViewportView: View {
                 CrosshairView()
             }
         }
-    }
-
-    private func formatVertexCount() -> String {
-        let total = viewModel.meshes.reduce(0) { $0 + $1.positions.count / 3 }
-        if total > 1_000_000 {
-            return String(format: "%.1fM", Double(total) / 1_000_000)
-        } else if total > 1_000 {
-            return String(format: "%.1fK", Double(total) / 1_000)
-        }
-        return "\(total)"
-    }
-
-    private func formatBounds(_ bounds: SceneBounds) -> String {
-        let width = bounds.maxX - bounds.minX
-        let height = bounds.maxY - bounds.minY
-        let depth = bounds.maxZ - bounds.minZ
-        return String(format: "%.1f × %.1f × %.1f", width, height, depth)
     }
 }
 

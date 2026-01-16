@@ -142,37 +142,24 @@ struct SceneKitView: ViewRepresentable {
             guard meshes.count != lastMeshCount else { return }
             lastMeshCount = meshes.count
 
-            print("DEBUG SceneKit: Updating scene with \(meshes.count) meshes")
-
             // Remove old mesh nodes
             for (_, node) in meshNodes {
                 node.removeFromParentNode()
             }
             meshNodes.removeAll()
 
-            guard let scene = scnView.scene else {
-                print("DEBUG SceneKit: No scene!")
-                return
-            }
+            guard let scene = scnView.scene else { return }
 
             // Create mesh nodes
-            var successCount = 0
-            var failCount = 0
             for mesh in meshes {
                 if let node = createMeshNode(from: mesh) {
                     scene.rootNode.addChildNode(node)
                     meshNodes[mesh.entityId] = node
-                    successCount += 1
-                } else {
-                    failCount += 1
                 }
             }
 
-            print("DEBUG SceneKit: Created \(successCount) nodes, failed \(failCount)")
-
             // Fit camera to bounds
             if let bounds = bounds {
-                print("DEBUG SceneKit: Fitting camera to bounds: \(bounds.minX),\(bounds.minY),\(bounds.minZ) - \(bounds.maxX),\(bounds.maxY),\(bounds.maxZ)")
                 fitCameraToBounds(scnView: scnView, bounds: bounds)
             }
         }
@@ -199,14 +186,10 @@ struct SceneKitView: ViewRepresentable {
             let normalCount = mesh.normals.count / 3
             let indexCount = mesh.indices.count
 
-            // Debug EVERY mesh to understand the problem
-            print("DEBUG Mesh #\(mesh.entityId): positions=\(mesh.positions.count), indices=\(mesh.indices.count), normals=\(mesh.normals.count)")
-
             // Validate mesh has sufficient data
             guard vertexCount >= 3,
                   indexCount >= 3,
                   !mesh.positions.isEmpty else {
-                print("DEBUG   SKIPPED: vertexCount=\(vertexCount), indexCount=\(indexCount), isEmpty=\(mesh.positions.isEmpty)")
                 return nil
             }
 
@@ -310,10 +293,7 @@ struct SceneKitView: ViewRepresentable {
         }
 
         func zoomToEntity(scnView: SCNView, entityId: UInt64) {
-            guard let node = meshNodes[entityId] else {
-                print("DEBUG: zoomToEntity - node not found for entity \(entityId)")
-                return
-            }
+            guard let node = meshNodes[entityId] else { return }
 
             // Get the bounding box of the node in world coordinates
             let (minBound, maxBound) = node.boundingBox
