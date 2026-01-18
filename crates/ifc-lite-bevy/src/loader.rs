@@ -250,7 +250,7 @@ fn load_ifc_file(
         let color = crate::mesh::get_default_color(&type_name);
         let ifc_mesh = IfcMesh::from_geometry_mesh(
             id as u64,
-            mesh,  // Move, not clone
+            mesh, // Move, not clone
             color,
             type_name.clone(),
             name.clone(),
