@@ -30,8 +30,10 @@ export interface InstancedStreamingStats {
 
 export interface ParseMeshesAsyncOptions {
   batchSize?: number;
+  // NOTE: WASM automatically defers style building for faster first frame
   onBatch?: (meshes: MeshDataJs[], progress: StreamingProgress) => void;
   onComplete?: (stats: StreamingStats) => void;
+  onColorUpdate?: (updates: Map<number, [number, number, number, number]>) => void;
 }
 
 export interface ParseMeshesInstancedAsyncOptions {
@@ -54,6 +56,7 @@ export class IfcLiteBridge {
     // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL
     // from import.meta.url, no need to manually construct paths
     await init();
+    
     this.ifcApi = new IfcAPI();
     this.initialized = true;
   }

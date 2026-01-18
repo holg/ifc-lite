@@ -1,10 +1,31 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import wasm from 'vite-plugin-wasm';
+import topLevelAwait from 'vite-plugin-top-level-await';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 import path from 'path';
+
+// Path to the WASM package
+const wasmPkgPath = path.resolve(__dirname, '../../packages/wasm/pkg');
 
 export default defineConfig({
   plugins: [
     react(),
+    wasm(),
+    topLevelAwait(),
+    // Copy WASM files to dist/wasm for production - enables proper worker loading
+    viteStaticCopy({
+      targets: [
+        {
+          src: `${wasmPkgPath}/ifc-lite.js`,
+          dest: 'wasm',
+        },
+        {
+          src: `${wasmPkgPath}/ifc-lite_bg.wasm`,
+          dest: 'wasm',
+        },
+      ],
+    }),
     {
       name: 'wasm-mime-type',
       configureServer(server) {
@@ -36,6 +57,10 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
     hmr: {
       overlay: true,
     },
@@ -43,28 +68,46 @@ export default defineConfig({
       usePolling: false,
       ignored: ['**/node_modules/**', '**/dist/**', '**/target/**', '**/pkg/**'],
     },
+    fs: {
+      strict: false,
+      allow: [
+        path.resolve(__dirname, '../../packages/wasm/pkg'),
+        path.resolve(__dirname, '../..'),
+      ],
+    },
+  },
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
   build: {
     target: 'esnext',
+    rollupOptions: {
+      // Don't bundle the worker's dynamic import of WASM - it's served statically
+      external: (id) => id === '/wasm/ifc-lite.js',
+    },
   },
   optimizeDeps: {
     exclude: [
-      '@duckdb/duckdb-wasm', // Optional dependency, exclude from pre-bundling
-      'parquet-wasm', // Has WASM files that shouldn't be pre-bundled
+      '@duckdb/duckdb-wasm',
+      'parquet-wasm',
+      '@ifc-lite/wasm',
     ],
   },
   assetsInclude: ['**/*.wasm'],
   worker: {
     format: 'es',
     plugins: () => [
+      wasm(),
+      topLevelAwait(),
       react(),
-      // Resolve aliases in worker context
       {
         name: 'worker-alias-resolver',
         resolveId(id) {
           if (id.startsWith('@ifc-lite/')) {
             const packageName = id.split('/')[1];
-            // WASM package doesn't have src folder - use pkg
             if (packageName === 'wasm') {
               return path.resolve(__dirname, `../../packages/wasm/pkg/ifc-lite.js`);
             }

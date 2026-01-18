@@ -43,6 +43,22 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const completeMeasurement = useViewerStore((state) => state.completeMeasurement);
   const sectionPlane = useViewerStore((state) => state.sectionPlane);
 
+  // New drag-based measurement store subscriptions
+  const activeMeasurement = useViewerStore((state) => state.activeMeasurement);
+  const startMeasurement = useViewerStore((state) => state.startMeasurement);
+  const updateMeasurement = useViewerStore((state) => state.updateMeasurement);
+  const finalizeMeasurement = useViewerStore((state) => state.finalizeMeasurement);
+  const cancelMeasurement = useViewerStore((state) => state.cancelMeasurement);
+  const setSnapTarget = useViewerStore((state) => state.setSnapTarget);
+  const setSnapVisualization = useViewerStore((state) => state.setSnapVisualization);
+  const snapEnabled = useViewerStore((state) => state.snapEnabled);
+  const updateMeasurementScreenCoords = useViewerStore((state) => state.updateMeasurementScreenCoords);
+  const measurements = useViewerStore((state) => state.measurements);
+  
+  // Color update subscriptions
+  const pendingColorUpdates = useViewerStore((state) => state.pendingColorUpdates);
+  const clearPendingColorUpdates = useViewerStore((state) => state.clearPendingColorUpdates);
+
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
   const clearColorRef = useRef<[number, number, number, number]>([0.102, 0.106, 0.149, 1]);
@@ -114,6 +130,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const selectedEntityIdRef = useRef<number | null>(selectedEntityId);
   const activeToolRef = useRef<string>(activeTool);
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
+  const activeMeasurementRef = useRef(activeMeasurement);
+  const snapEnabledRef = useRef(snapEnabled);
   const sectionPlaneRef = useRef(sectionPlane);
   const geometryRef = useRef<MeshData[] | null>(geometry);
 
@@ -122,12 +140,38 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const hoverThrottleMs = 50; // Check hover every 50ms
   const hoverTooltipsEnabledRef = useRef(hoverTooltipsEnabled);
 
+  // Measure tool throttling (16ms = 60fps max)
+  const measureRaycastPendingRef = useRef(false);
+  const measureRaycastFrameRef = useRef<number | null>(null);
+  // Hover-only snap detection throttling (100ms = 10fps max for hover, 60fps for active measurement)
+  const lastHoverSnapTimeRef = useRef<number>(0);
+  const HOVER_SNAP_THROTTLE_MS = 100;
+
+  // Render throttling during orbit/pan
+  // Adaptive: 16ms (60fps) for small models, up to 33ms (30fps) for very large models
+  const lastRenderTimeRef = useRef<number>(0);
+  const renderPendingRef = useRef<boolean>(false);
+  const RENDER_THROTTLE_MS_SMALL = 16;  // ~60fps for models < 10K meshes
+  const RENDER_THROTTLE_MS_LARGE = 25;  // ~40fps for models 10K-50K meshes
+  const RENDER_THROTTLE_MS_HUGE = 33;   // ~30fps for models > 50K meshes
+
+  // Camera state tracking for measurement updates (only update when camera actually moved)
+  const lastCameraStateRef = useRef<{
+    position: { x: number; y: number; z: number };
+    rotation: { azimuth: number; elevation: number };
+    distance: number;
+    canvasWidth: number;
+    canvasHeight: number;
+  } | null>(null);
+
   // Keep refs in sync
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
   useEffect(() => { isolatedEntitiesRef.current = isolatedEntities; }, [isolatedEntities]);
   useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
+  useEffect(() => { activeMeasurementRef.current = activeMeasurement; }, [activeMeasurement]);
+  useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => {
     geometryRef.current = geometry;
@@ -139,6 +183,34 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       clearHover();
     }
   }, [hoverTooltipsEnabled, clearHover]);
+
+  // Cleanup measurement state when tool changes + set cursor
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (activeTool !== 'measure') {
+      // Cancel any active measurement
+      if (activeMeasurement) {
+        cancelMeasurement();
+      }
+      // Clear pending raycast requests
+      if (measureRaycastFrameRef.current !== null) {
+        cancelAnimationFrame(measureRaycastFrameRef.current);
+        measureRaycastFrameRef.current = null;
+        measureRaycastPendingRef.current = false;
+      }
+    }
+
+    // Set cursor based on active tool
+    if (activeTool === 'measure') {
+      canvas.style.cursor = 'crosshair';
+    } else if (activeTool === 'pan' || activeTool === 'orbit') {
+      canvas.style.cursor = 'grab';
+    } else {
+      canvas.style.cursor = 'default';
+    }
+  }, [activeTool, activeMeasurement, cancelMeasurement]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -177,6 +249,46 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
         };
+      }
+
+      // Helper function to compute snap visualization (edge highlights, plane indicators)
+      function updateSnapVisualization(snapTarget: any) {
+        if (!snapTarget || !canvas) {
+          setSnapVisualization(null);
+          return;
+        }
+
+        const viz: any = {};
+
+        // For edge snaps: project edge vertices to screen space and draw line
+        if ((snapTarget.type === 'edge' || snapTarget.type === 'edge_midpoint') && snapTarget.metadata?.vertices) {
+          const [v0, v1] = snapTarget.metadata.vertices;
+          const start = camera.projectToScreen(v0, canvas.width, canvas.height);
+          const end = camera.projectToScreen(v1, canvas.width, canvas.height);
+
+          if (start && end) {
+            // Keep canvas-relative coords (SVG overlay is absolute inset-0 within viewport)
+            viz.edgeLine = {
+              start: { x: start.x, y: start.y },
+              end: { x: end.x, y: end.y }
+            };
+          }
+        }
+
+        // For face snaps: show plane indicator
+        if ((snapTarget.type === 'face' || snapTarget.type === 'face_center') && snapTarget.normal) {
+          const pos = camera.projectToScreen(snapTarget.position, canvas.width, canvas.height);
+          if (pos) {
+            // Keep canvas-relative coords (SVG overlay is absolute inset-0 within viewport)
+            viz.planeIndicator = {
+              x: pos.x,
+              y: pos.y,
+              normal: snapTarget.normal,
+            };
+          }
+        }
+
+        setSnapVisualization(viz);
       }
 
       // Helper function to get entity bounds (min/max) - defined early for callbacks
@@ -349,16 +461,60 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           // Update ViewCube during camera animation (e.g., preset view transitions)
           updateCameraRotationRealtime(camera.getRotation());
           calculateScale();
-        } else if (!mouseState.isDragging && currentTime - lastRotationUpdate > 100) {
-          // Update camera rotation for ViewCube when not dragging (throttled)
+        } else if (!mouseState.isDragging && currentTime - lastRotationUpdate > 500) {
+          // Update camera rotation for ViewCube when not dragging (throttled to every 500ms when idle)
           updateCameraRotationRealtime(camera.getRotation());
           lastRotationUpdate = currentTime;
         }
 
-        // Update scale bar (throttled to every 100ms)
-        if (currentTime - lastScaleUpdate > 100) {
+        // Update scale bar (throttled to every 500ms - scale rarely needs frequent updates)
+        if (currentTime - lastScaleUpdate > 500) {
           calculateScale();
           lastScaleUpdate = currentTime;
+        }
+
+        // Update measurement screen coordinates only when:
+        // 1. Measure tool is active (not in other modes)
+        // 2. Measurements exist
+        // 3. Camera actually changed
+        // This prevents unnecessary store updates and re-renders when not measuring
+        if (activeToolRef.current === 'measure') {
+          const state = useViewerStore.getState();
+          if (state.measurements.length > 0 || state.activeMeasurement) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const cameraPos = camera.getPosition();
+              const cameraRot = camera.getRotation();
+              const cameraDist = camera.getDistance();
+              const currentCameraState = {
+                position: cameraPos,
+                rotation: cameraRot,
+                distance: cameraDist,
+                canvasWidth: canvas.width,
+                canvasHeight: canvas.height,
+              };
+
+              // Check if camera state changed
+              const lastState = lastCameraStateRef.current;
+              const cameraChanged =
+                !lastState ||
+                lastState.position.x !== currentCameraState.position.x ||
+                lastState.position.y !== currentCameraState.position.y ||
+                lastState.position.z !== currentCameraState.position.z ||
+                lastState.rotation.azimuth !== currentCameraState.rotation.azimuth ||
+                lastState.rotation.elevation !== currentCameraState.rotation.elevation ||
+                lastState.distance !== currentCameraState.distance ||
+                lastState.canvasWidth !== currentCameraState.canvasWidth ||
+                lastState.canvasHeight !== currentCameraState.canvasHeight;
+
+              if (cameraChanged) {
+                lastCameraStateRef.current = currentCameraState;
+                updateMeasurementScreenCoords((worldPos) => {
+                  return camera.projectToScreen(worldPos, canvas.width, canvas.height);
+                });
+              }
+            }
+          }
         }
 
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -418,8 +574,55 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           mouseState.isPanning = e.shiftKey;
           canvas.style.cursor = e.shiftKey ? 'move' : 'grabbing';
         } else if (tool === 'measure') {
-          // Measure tool - cursor indicates measurement mode
-          canvas.style.cursor = 'crosshair';
+          // Measure tool - shift+drag = orbit, normal drag = measure
+          if (e.shiftKey) {
+            // Shift pressed: allow orbit (not pan)
+            // Mouse positions already initialized at start of mousedown handler
+            mouseState.isPanning = false;
+            canvas.style.cursor = 'grabbing';
+            // Don't return early - fall through to allow orbit handling in mousemove
+          } else {
+            // Normal drag: start measurement
+            mouseState.isDragging = true; // Mark as dragging for measure tool
+            canvas.style.cursor = 'crosshair';
+
+            // Calculate canvas-relative coordinates
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            // Raycast to get start point
+            const result = renderer.raycastScene(x, y, {
+              hiddenIds: hiddenEntitiesRef.current,
+              isolatedIds: isolatedEntitiesRef.current,
+              snapOptions: snapEnabled ? {
+                snapToVertices: true,
+                snapToEdges: true,
+                snapToFaces: true,
+                screenSnapRadius: 60, // Increased for easier edge detection
+              } : undefined,
+            });
+
+            if (result) {
+              const snapPoint = result.snap || result.intersection;
+              // Extract position from either SnapTarget (has .position) or Intersection (has .point)
+              const pos = 'position' in snapPoint ? snapPoint.position : snapPoint.point;
+              const measurePoint: MeasurePoint = {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+                screenX: x, // Use canvas-relative coordinates (consistent with mousemove)
+                screenY: y,
+              };
+
+              startMeasurement(measurePoint);
+              if (result.snap) {
+                setSnapTarget(result.snap);
+                updateSnapVisualization(result.snap);
+              }
+            }
+            return; // Early return for measure tool (non-shift)
+          }
         } else {
           // Default behavior
           mouseState.isPanning = e.shiftKey;
@@ -431,11 +634,120 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
+        const tool = activeToolRef.current;
 
-        if (mouseState.isDragging) {
+        // Handle measure tool live preview while dragging
+        // IMPORTANT: Check tool first, not activeMeasurement, to prevent orbit conflict
+        if (tool === 'measure' && mouseState.isDragging) {
+          // Shift+drag: allow orbit instead of measurement
+          if (e.shiftKey) {
+            // Cancel any active measurement and allow orbit
+            if (activeMeasurementRef.current) {
+              cancelMeasurement();
+            }
+            // Fall through to orbit handling below
+          } else {
+            // Normal measure tool drag
+            // Only raycast if we have an active measurement
+            if (!activeMeasurementRef.current) {
+              // Just started dragging, measurement will be set soon
+              // Don't do anything yet to avoid race condition
+              return;
+            }
+
+            // Throttle raycasting to 60fps max using requestAnimationFrame
+            if (!measureRaycastPendingRef.current) {
+              measureRaycastPendingRef.current = true;
+
+              measureRaycastFrameRef.current = requestAnimationFrame(() => {
+                measureRaycastPendingRef.current = false;
+                measureRaycastFrameRef.current = null;
+
+                // Raycast to get current position
+                const result = renderer.raycastScene(x, y, {
+                  hiddenIds: hiddenEntitiesRef.current,
+                  isolatedIds: isolatedEntitiesRef.current,
+                  snapOptions: snapEnabledRef.current ? {
+                    snapToVertices: true,
+                    snapToEdges: true,
+                    snapToFaces: true,
+                    screenSnapRadius: 60,
+                  } : undefined,
+                });
+
+                if (result) {
+                  const snapPoint = result.snap || result.intersection;
+                  // Normalize position access: SnapTarget has 'position', Intersection has 'point'
+                  const pos = 'position' in snapPoint ? snapPoint.position : snapPoint.point;
+                  const measurePoint: MeasurePoint = {
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                    screenX: x, // Use canvas-relative coordinates
+                    screenY: y,
+                  };
+
+                  updateMeasurement(measurePoint);
+                  setSnapTarget(result.snap || null);
+                  updateSnapVisualization(result.snap || null);
+                }
+              });
+            }
+
+            // Mark as dragged (any movement counts for measure tool)
+            mouseState.didDrag = true;
+            return;
+          }
+        }
+
+        // Handle measure tool hover preview (BEFORE dragging starts)
+        // Show snap indicators to help user see where they can snap
+        if (tool === 'measure' && !mouseState.isDragging && snapEnabledRef.current) {
+          // Throttle hover snap detection more aggressively (100ms) to avoid performance issues
+          // Active measurement still uses 60fps throttling via requestAnimationFrame
+          const now = Date.now();
+          if (now - lastHoverSnapTimeRef.current < HOVER_SNAP_THROTTLE_MS) {
+            return; // Skip hover snap detection if throttled
+          }
+          lastHoverSnapTimeRef.current = now;
+          
+          // Throttle raycasting to avoid performance issues
+          if (!measureRaycastPendingRef.current) {
+            measureRaycastPendingRef.current = true;
+
+            measureRaycastFrameRef.current = requestAnimationFrame(() => {
+              measureRaycastPendingRef.current = false;
+              measureRaycastFrameRef.current = null;
+
+              // Raycast to detect snap targets on hover
+              const result = renderer.raycastScene(x, y, {
+                hiddenIds: hiddenEntitiesRef.current,
+                isolatedIds: isolatedEntitiesRef.current,
+                snapOptions: {
+                  snapToVertices: true,
+                  snapToEdges: true,
+                  snapToFaces: true,
+                  screenSnapRadius: 30, // Larger radius for easier snap detection
+                }, // Enable snapping
+              });
+
+              // Update snap target for visual feedback
+              if (result && result.snap) {
+                setSnapTarget(result.snap);
+                updateSnapVisualization(result.snap);
+              } else {
+                setSnapTarget(null);
+                updateSnapVisualization(null);
+              }
+            });
+          }
+          return; // Don't fall through to other tool handlers
+        }
+
+        // Handle orbit/pan for other tools (or measure tool with shift+drag or no active measurement)
+        if (mouseState.isDragging && (tool !== 'measure' || !activeMeasurementRef.current)) {
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
-          const tool = activeToolRef.current;
 
           // Check if this counts as a drag (moved more than 5px from start)
           const totalDx = e.clientX - mouseState.startX;
@@ -444,6 +756,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             mouseState.didDrag = true;
           }
 
+          // Always update camera state immediately (feels responsive)
           if (mouseState.isPanning || tool === 'pan') {
             camera.pan(dx, dy, false);
           } else if (tool === 'walk') {
@@ -458,16 +771,44 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
           mouseState.lastX = e.clientX;
           mouseState.lastY = e.clientY;
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            clearColor: clearColorRef.current,
-            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
-          });
-          // Update ViewCube rotation in real-time during drag
-          updateCameraRotationRealtime(camera.getRotation());
-          calculateScale();
+
+          // PERFORMANCE: Adaptive throttle based on model size
+          // Small models: 60fps, Large: 40fps, Huge: 30fps
+          const meshCount = geometryRef.current?.length ?? 0;
+          const throttleMs = meshCount > 50000 ? RENDER_THROTTLE_MS_HUGE
+            : meshCount > 10000 ? RENDER_THROTTLE_MS_LARGE
+            : RENDER_THROTTLE_MS_SMALL;
+
+          const now = performance.now();
+          if (now - lastRenderTimeRef.current >= throttleMs) {
+            lastRenderTimeRef.current = now;
+            renderer.render({
+              hiddenIds: hiddenEntitiesRef.current,
+              isolatedIds: isolatedEntitiesRef.current,
+              selectedId: selectedEntityIdRef.current,
+              clearColor: clearColorRef.current,
+              sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            });
+            // Update ViewCube rotation in real-time during drag
+            updateCameraRotationRealtime(camera.getRotation());
+            calculateScale();
+          } else if (!renderPendingRef.current) {
+            // Schedule a final render for when throttle expires
+            // This ensures we always render the final position
+            renderPendingRef.current = true;
+            requestAnimationFrame(() => {
+              renderPendingRef.current = false;
+              renderer.render({
+                hiddenIds: hiddenEntitiesRef.current,
+                isolatedIds: isolatedEntitiesRef.current,
+                selectedId: selectedEntityIdRef.current,
+                clearColor: clearColorRef.current,
+                sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+              });
+              updateCameraRotationRealtime(camera.getRotation());
+              calculateScale();
+            });
+          }
           // Clear hover while dragging
           clearHover();
         } else if (hoverTooltipsEnabledRef.current) {
@@ -487,20 +828,38 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       });
 
       canvas.addEventListener('mouseup', () => {
+        const tool = activeToolRef.current;
+
+        // Handle measure tool completion
+        if (tool === 'measure' && activeMeasurementRef.current) {
+          finalizeMeasurement();
+          mouseState.isDragging = false;
+          mouseState.didDrag = false;
+          canvas.style.cursor = 'crosshair';
+          return;
+        }
+
         mouseState.isDragging = false;
         mouseState.isPanning = false;
-        const tool = activeToolRef.current;
-        canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : 'default');
+        canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : (tool === 'measure' ? 'crosshair' : 'default'));
         // Clear orbit pivot after each orbit operation
         camera.setOrbitPivot(null);
       });
 
       canvas.addEventListener('mouseleave', () => {
+        const tool = activeToolRef.current;
         mouseState.isDragging = false;
         mouseState.isPanning = false;
         camera.stopInertia();
         camera.setOrbitPivot(null);
-        canvas.style.cursor = 'default';
+        // Restore cursor based on active tool
+        if (tool === 'measure') {
+          canvas.style.cursor = 'crosshair';
+        } else if (tool === 'pan' || tool === 'orbit') {
+          canvas.style.cursor = 'grab';
+        } else {
+          canvas.style.cursor = 'default';
+        }
         clearHover();
       });
 
@@ -527,6 +886,27 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           clearColor: clearColorRef.current,
           sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
         });
+        // Update measurement screen coordinates immediately during zoom (only in measure mode)
+        if (activeToolRef.current === 'measure') {
+          const state = useViewerStore.getState();
+          if (state.measurements.length > 0 || state.activeMeasurement) {
+            updateMeasurementScreenCoords((worldPos) => {
+              return camera.projectToScreen(worldPos, canvas.width, canvas.height);
+            });
+            // Update camera state tracking to prevent duplicate update in animation loop
+            const cameraPos = camera.getPosition();
+            const cameraRot = camera.getRotation();
+            const cameraDist = camera.getDistance();
+            lastCameraStateRef.current = {
+              position: cameraPos,
+              rotation: cameraRot,
+              distance: cameraDist,
+              canvasWidth: canvas.width,
+              canvasHeight: canvas.height,
+            };
+          }
+        }
+        calculateScale();
       });
 
       // Click handling
@@ -546,31 +926,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           return;
         }
 
-        // Handle measure tool clicks
+        // Measure tool now uses drag interaction (see mousedown/mousemove/mouseup)
         if (tool === 'measure') {
-          // Uses visibility filtering so measurements only snap to visible elements
-          const pickedId = await renderer.pick(x, y, getPickOptions());
-          if (pickedId) {
-            // Get 3D position from mesh vertices (simplified - uses center of clicked entity)
-            // In a full implementation, you'd use ray-triangle intersection
-            const worldPos = getApproximateWorldPosition(geometryRef.current, pickedId, x, y, canvas.width, canvas.height);
-            const measurePoint: MeasurePoint = {
-              x: worldPos.x,
-              y: worldPos.y,
-              z: worldPos.z,
-              screenX: e.clientX,
-              screenY: e.clientY,
-            };
-
-            if (pendingMeasurePointRef.current) {
-              // Complete the measurement
-              completeMeasurement(measurePoint);
-            } else {
-              // Start a new measurement
-              addMeasurePoint(measurePoint);
-            }
-          }
-          return;
+          return; // Skip click handling for measure tool
         }
 
         const now = Date.now();
@@ -862,6 +1220,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       if (keyboardHandlersRef.current.handleKeyUp) {
         window.removeEventListener('keyup', keyboardHandlersRef.current.handleKeyUp);
       }
+      // Cancel pending raycast requests
+      if (measureRaycastFrameRef.current !== null) {
+        cancelAnimationFrame(measureRaycastFrameRef.current);
+        measureRaycastFrameRef.current = null;
+      }
       setIsInitialized(false);
       rendererRef.current = null;
     };
@@ -878,8 +1241,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const finalBoundsRefittedRef = useRef<boolean>(false); // Track if we've refitted after streaming
 
   // Render throttling during streaming
-  const lastRenderTimeRef = useRef<number>(0);
-  const RENDER_THROTTLE_MS = 200; // Render at most every 200ms during streaming
+  const lastStreamRenderTimeRef = useRef<number>(0);
+  const STREAM_RENDER_THROTTLE_MS = 200; // Render at most every 200ms during streaming
   const progress = useViewerStore((state) => state.progress);
   const isStreaming = progress !== null && progress.percent < 100;
 
@@ -1086,6 +1449,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           });
         }
       }
+
+      // Invalidate caches when new geometry is added
+      renderer.clearCaches();
     }
 
     lastGeometryLengthRef.current = currentLength;
@@ -1151,15 +1517,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
     // Instancing conversion would require preserving actual mesh transforms, which is complex
     // For now, we render regular meshes directly (fast enough for most cases)
 
-    // Render throttling: During streaming, only render every RENDER_THROTTLE_MS
+    // Render throttling: During streaming, only render every STREAM_RENDER_THROTTLE_MS
     // This prevents rendering 28K+ meshes from blocking WASM batch processing
     const now = Date.now();
-    const timeSinceLastRender = now - lastRenderTimeRef.current;
-    const shouldRender = !isStreaming || timeSinceLastRender >= RENDER_THROTTLE_MS;
+    const timeSinceLastRender = now - lastStreamRenderTimeRef.current;
+    const shouldRender = !isStreaming || timeSinceLastRender >= STREAM_RENDER_THROTTLE_MS;
 
     if (shouldRender) {
       renderer.render();
-      lastRenderTimeRef.current = now;
+      lastStreamRenderTimeRef.current = now;
     }
   }, [geometry, coordinateInfo, isInitialized, isStreaming]);
 
@@ -1181,10 +1547,32 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       }
 
       renderer.render();
-      lastRenderTimeRef.current = Date.now();
+      lastStreamRenderTimeRef.current = Date.now();
     }
     prevIsStreamingRef.current = isStreaming;
   }, [isStreaming, isInitialized]);
+
+  // Apply pending color updates to WebGPU scene
+  // Note: Color updates may arrive before viewport is initialized, so we wait
+  useEffect(() => {
+    if (!pendingColorUpdates || pendingColorUpdates.size === 0) return;
+    
+    // Wait until viewport is initialized before applying color updates
+    if (!isInitialized) return;
+    
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    
+    const device = renderer.getGPUDevice();
+    const pipeline = renderer.getPipeline();
+    const scene = renderer.getScene();
+    
+    if (device && pipeline && (scene as any).updateMeshColors) {
+      (scene as any).updateMeshColors(pendingColorUpdates, device, pipeline);
+      renderer.render();
+      clearPendingColorUpdates();
+    }
+  }, [pendingColorUpdates, isInitialized, clearPendingColorUpdates]);
 
   // Get selectedEntityIds from store for multi-selection
   const selectedEntityIds = useViewerStore((state) => state.selectedEntityIds);

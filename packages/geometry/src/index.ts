@@ -9,13 +9,14 @@
 
 // IFC-Lite components (recommended - faster)
 export { IfcLiteBridge } from './ifc-lite-bridge.js';
-export { IfcLiteMeshCollector } from './ifc-lite-mesh-collector.js';
+export { IfcLiteMeshCollector, type StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
+import type { StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
 
 // Support components
 export { BufferBuilder } from './buffer-builder.js';
 export { CoordinateHandler } from './coordinate-handler.js';
-export { WorkerPool } from './worker-pool.js';
 export { GeometryQuality } from './progressive-loader.js';
+
 export { LODGenerator, type LODConfig, type LODMesh } from './lod.js';
 export {
   deduplicateMeshes,
@@ -46,12 +47,10 @@ import { IfcLiteBridge } from './ifc-lite-bridge.js';
 import { IfcLiteMeshCollector } from './ifc-lite-mesh-collector.js';
 import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
-import { WorkerPool } from './worker-pool.js';
 import { GeometryQuality } from './progressive-loader.js';
 import type { GeometryResult, MeshData } from './types.js';
 
 export interface GeometryProcessorOptions {
-  useWorkers?: boolean; // Default: false (workers add overhead)
   quality?: GeometryQuality; // Default: Balanced
 }
 
@@ -89,6 +88,7 @@ export type StreamingGeometryEvent =
   | { type: 'start'; totalEstimate: number }
   | { type: 'model-open'; modelID: number }
   | { type: 'batch'; meshes: MeshData[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
+  | { type: 'colorUpdate'; updates: Map<number, [number, number, number, number]> }
   | { type: 'complete'; totalMeshes: number; coordinateInfo: import('./types.js').CoordinateInfo };
 
 export type StreamingInstancedGeometryEvent =
@@ -101,32 +101,25 @@ export class GeometryProcessor {
   private bridge: IfcLiteBridge;
   private bufferBuilder: BufferBuilder;
   private coordinateHandler: CoordinateHandler;
-  private workerPool: WorkerPool | null = null;
-  private useWorkers: boolean = false;
 
   constructor(options: GeometryProcessorOptions = {}) {
     this.bridge = new IfcLiteBridge();
     this.bufferBuilder = new BufferBuilder();
     this.coordinateHandler = new CoordinateHandler();
-    this.useWorkers = options.useWorkers ?? false;
-    // Note: quality option is accepted for API compatibility but IFC-Lite always processes at full quality
+    // Note: options accepted for API compatibility
     void options.quality;
   }
 
   /**
-   * Initialize IFC-Lite WASM and worker pool
+   * Initialize IFC-Lite WASM
    * WASM is automatically resolved from the package location - no path needed
    */
   async init(_wasmPath?: string): Promise<void> {
     await this.bridge.init();
-
-    // Initialize worker pool if available (lazy - only when needed)
-    // Don't initialize workers upfront to avoid overhead
-    // Workers will be initialized on first use if needed
   }
 
   /**
-   * Process IFC file and extract geometry
+   * Process IFC file and extract geometry (synchronous, use processStreaming for large files)
    * @param buffer IFC file buffer
    * @param entityIndex Optional entity index for priority-based loading
    */
@@ -135,48 +128,11 @@ export class GeometryProcessor {
       await this.init();
     }
 
-    // entityIndex is used in collectMeshesMainThread for priority-based loading
     void entityIndex;
 
-    let meshes: MeshData[];
-    // const meshCollectionStart = performance.now();
-
-    // Use workers only if explicitly enabled (they add overhead)
-    if (this.useWorkers) {
-      // Try to use worker pool if available (lazy init)
-      if (!this.workerPool) {
-        try {
-          let workerUrl: URL | string;
-          try {
-            workerUrl = new URL('./geometry.worker.ts', import.meta.url);
-          } catch (e) {
-            workerUrl = './geometry.worker.ts';
-          }
-          this.workerPool = new WorkerPool(workerUrl, 1); // Use single worker for now
-          await this.workerPool.init();
-        } catch (error) {
-          console.warn('[GeometryProcessor] Worker pool initialization failed, will use main thread:', error);
-          this.workerPool = null;
-        }
-      }
-
-      if (this.workerPool?.isAvailable()) {
-        try {
-          meshes = await this.workerPool.submit<MeshData[]>('mesh-collection', {
-            buffer: buffer.buffer,
-          });
-        } catch (error) {
-          console.warn('[Geometry] Worker pool failed, falling back to main thread:', error);
-          meshes = await this.collectMeshesMainThread(buffer);
-        }
-      } else {
-        // Fallback to main thread
-        meshes = await this.collectMeshesMainThread(buffer);
-      }
-    } else {
-      // Use main thread (faster for total time, but blocks UI)
-      meshes = await this.collectMeshesMainThread(buffer);
-    }
+    // Synchronous processing on main thread
+    // For large files, use processStreaming() instead which uses a dedicated worker
+    const meshes = await this.collectMeshesMainThread(buffer);
 
     // const meshCollectionTime = performance.now() - meshCollectionStart;
 
@@ -258,7 +214,15 @@ export class GeometryProcessor {
     const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
 
     // Use WASM batches directly for maximum throughput
-    for await (const batch of collector.collectMeshesStreaming(wasmBatchSize)) {
+    for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
+      // Handle color update events
+      if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
+        yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
+        continue;
+      }
+
+      // Handle mesh batches
+      const batch = item as MeshData[];
       // Process coordinate shifts incrementally (will accumulate bounds)
       this.coordinateHandler.processMeshesIncremental(batch);
       totalMeshes += batch.length;
@@ -415,12 +379,19 @@ export class GeometryProcessor {
   }
 
   /**
+   * Get the WASM API instance for advanced operations (e.g., entity scanning)
+   */
+  getApi() {
+    if (!this.bridge.isInitialized()) {
+      return null;
+    }
+    return this.bridge.getApi();
+  }
+
+  /**
    * Cleanup resources
    */
   dispose(): void {
-    if (this.workerPool) {
-      this.workerPool.terminate();
-      this.workerPool = null;
-    }
+    // No cleanup needed
   }
 }

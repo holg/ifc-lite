@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import type { GeometryResult, CoordinateInfo } from '@ifc-lite/geometry';
+import type { SnapTarget } from '@ifc-lite/renderer';
 
 // Measurement types
 export interface MeasurePoint {
@@ -23,6 +24,13 @@ export interface Measurement {
   id: string;
   start: MeasurePoint;
   end: MeasurePoint;
+  distance: number;
+}
+
+// Active measurement (for drag-based interaction)
+export interface ActiveMeasurement {
+  start: MeasurePoint;
+  current: MeasurePoint;
   distance: number;
 }
 
@@ -57,6 +65,10 @@ interface ViewerState {
   // Data
   ifcDataStore: IfcDataStore | null;
   geometryResult: GeometryResult | null;
+  
+  // Pending color updates (for deferred color parsing)
+  // Viewport will apply these to the WebGPU scene and then clear them
+  pendingColorUpdates: Map<number, [number, number, number, number]> | null;
 
   // Selection
   selectedEntityId: number | null;
@@ -90,7 +102,14 @@ interface ViewerState {
 
   // Measurement state
   measurements: Measurement[];
-  pendingMeasurePoint: MeasurePoint | null;
+  pendingMeasurePoint: MeasurePoint | null; // Legacy (keep for backward compatibility)
+  activeMeasurement: ActiveMeasurement | null; // New drag-based measurement
+  snapTarget: SnapTarget | null; // Current snap preview
+  snapEnabled: boolean; // Toggle snapping on/off
+  snapVisualization: {
+    edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; // Projected edge in screen space
+    planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } }; // Face snap indicator
+  } | null;
 
   // Section plane state
   sectionPlane: SectionPlane;
@@ -118,6 +137,8 @@ interface ViewerState {
   setIfcDataStore: (result: IfcDataStore | null) => void;
   setGeometryResult: (result: GeometryResult | null) => void;
   appendGeometryBatch: (meshes: GeometryResult['meshes'], coordinateInfo?: CoordinateInfo) => void;
+  updateMeshColors: (updates: Map<number, [number, number, number, number]>) => void;
+  clearPendingColorUpdates: () => void;
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
   setSelectedEntityId: (id: number | null) => void;
   toggleStoreySelection: (id: number) => void;
@@ -171,11 +192,23 @@ interface ViewerState {
   openContextMenu: (entityId: number | null, screenX: number, screenY: number) => void;
   closeContextMenu: () => void;
 
-  // Measurement actions
+  // Measurement actions (legacy)
   addMeasurePoint: (point: MeasurePoint) => void;
   completeMeasurement: (endPoint: MeasurePoint) => void;
+
+  // Measurement actions (new drag-based)
+  startMeasurement: (point: MeasurePoint) => void;
+  updateMeasurement: (point: MeasurePoint) => void;
+  finalizeMeasurement: () => void;
+  cancelMeasurement: () => void;
   deleteMeasurement: (id: string) => void;
   clearMeasurements: () => void;
+  updateMeasurementScreenCoords: (projectToScreen: (worldPos: { x: number; y: number; z: number }) => { x: number; y: number } | null) => void;
+
+  // Snap actions
+  setSnapTarget: (target: SnapTarget | null) => void;
+  setSnapVisualization: (viz: { edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } } } | null) => void;
+  toggleSnap: () => void;
 
   // Section plane actions
   setSectionPlaneAxis: (axis: 'x' | 'y' | 'z') => void;
@@ -194,6 +227,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   error: null,
   ifcDataStore: null,
   geometryResult: null,
+  pendingColorUpdates: null,
   selectedEntityId: null,
   selectedEntityIds: new Set(),
   selectedStoreys: new Set(),
@@ -214,6 +248,10 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
   measurements: [],
   pendingMeasurePoint: null,
+  activeMeasurement: null,
+  snapTarget: null,
+  snapEnabled: true,
+  snapVisualization: null,
   sectionPlane: { axis: 'y', position: 50, enabled: false },
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
@@ -256,6 +294,26 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       },
     };
   }),
+  updateMeshColors: (updates) => set((state) => {
+    if (!state.geometryResult) return {};
+    // Update colors for meshes with matching expressIds
+    const updatedMeshes = state.geometryResult.meshes.map(mesh => {
+      const newColor = updates.get(mesh.expressId);
+      if (newColor) {
+        return { ...mesh, color: newColor };
+      }
+      return mesh;
+    });
+    return {
+      geometryResult: {
+        ...state.geometryResult,
+        meshes: updatedMeshes,
+      },
+      // Store pending updates for Viewport to apply to WebGPU scene
+      pendingColorUpdates: updates,
+    };
+  }),
+  clearPendingColorUpdates: () => set({ pendingColorUpdates: null }),
   updateCoordinateInfo: (coordinateInfo) => set((state) => {
     if (!state.geometryResult) return {};
     return {
@@ -459,7 +517,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
   }),
 
-  // Measurement actions
+  // Measurement actions (legacy - keep for backward compatibility)
   addMeasurePoint: (point) => set({ pendingMeasurePoint: point }),
   completeMeasurement: (endPoint) => set((state) => {
     if (!state.pendingMeasurePoint) return {};
@@ -480,10 +538,150 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       pendingMeasurePoint: null,
     };
   }),
+
+  // Measurement actions (new drag-based)
+  startMeasurement: (point) => set({
+    activeMeasurement: {
+      start: point,
+      current: point,
+      distance: 0,
+    },
+  }),
+  updateMeasurement: (point) => set((state) => {
+    if (!state.activeMeasurement) return {};
+    const start = state.activeMeasurement.start;
+    const distance = Math.sqrt(
+      Math.pow(point.x - start.x, 2) +
+      Math.pow(point.y - start.y, 2) +
+      Math.pow(point.z - start.z, 2)
+    );
+    return {
+      activeMeasurement: {
+        start,
+        current: point,
+        distance,
+      },
+    };
+  }),
+  finalizeMeasurement: () => set((state) => {
+    if (!state.activeMeasurement) return {};
+    const measurement: Measurement = {
+      id: `m-${Date.now()}`,
+      start: state.activeMeasurement.start,
+      end: state.activeMeasurement.current,
+      distance: state.activeMeasurement.distance,
+    };
+    return {
+      measurements: [...state.measurements, measurement],
+      activeMeasurement: null,
+      snapTarget: null,
+    };
+  }),
+  cancelMeasurement: () => set({
+    activeMeasurement: null,
+    snapTarget: null,
+  }),
   deleteMeasurement: (id) => set((state) => ({
     measurements: state.measurements.filter((m) => m.id !== id),
   })),
-  clearMeasurements: () => set({ measurements: [], pendingMeasurePoint: null }),
+  clearMeasurements: () => set({
+    measurements: [],
+    pendingMeasurePoint: null,
+    activeMeasurement: null,
+    snapTarget: null,
+  }),
+  updateMeasurementScreenCoords: (projectToScreen) => {
+    // Use get() to read state first - check for changes before calling set()
+    const state = get();
+    let hasChanges = false;
+
+    // Check completed measurements for changes
+    const updatedMeasurements = state.measurements.map((m) => {
+      const startScreen = projectToScreen(m.start);
+      const endScreen = projectToScreen(m.end);
+      
+      const newStartX = startScreen?.x ?? m.start.screenX;
+      const newStartY = startScreen?.y ?? m.start.screenY;
+      const newEndX = endScreen?.x ?? m.end.screenX;
+      const newEndY = endScreen?.y ?? m.end.screenY;
+      
+      // Check if coordinates changed
+      if (
+        newStartX !== m.start.screenX ||
+        newStartY !== m.start.screenY ||
+        newEndX !== m.end.screenX ||
+        newEndY !== m.end.screenY
+      ) {
+        hasChanges = true;
+      }
+      
+      return {
+        ...m,
+        start: {
+          ...m.start,
+          screenX: newStartX,
+          screenY: newStartY,
+        },
+        end: {
+          ...m.end,
+          screenX: newEndX,
+          screenY: newEndY,
+        },
+      };
+    });
+
+    // Check active measurement for changes
+    let updatedActiveMeasurement = state.activeMeasurement;
+    if (state.activeMeasurement) {
+      const startScreen = projectToScreen(state.activeMeasurement.start);
+      const currentScreen = projectToScreen(state.activeMeasurement.current);
+      
+      const newStartX = startScreen?.x ?? state.activeMeasurement.start.screenX;
+      const newStartY = startScreen?.y ?? state.activeMeasurement.start.screenY;
+      const newCurrentX = currentScreen?.x ?? state.activeMeasurement.current.screenX;
+      const newCurrentY = currentScreen?.y ?? state.activeMeasurement.current.screenY;
+      
+      // Check if coordinates changed
+      if (
+        newStartX !== state.activeMeasurement.start.screenX ||
+        newStartY !== state.activeMeasurement.start.screenY ||
+        newCurrentX !== state.activeMeasurement.current.screenX ||
+        newCurrentY !== state.activeMeasurement.current.screenY
+      ) {
+        hasChanges = true;
+      }
+      
+      updatedActiveMeasurement = {
+        ...state.activeMeasurement,
+        start: {
+          ...state.activeMeasurement.start,
+          screenX: newStartX,
+          screenY: newStartY,
+        },
+        current: {
+          ...state.activeMeasurement.current,
+          screenX: newCurrentX,
+          screenY: newCurrentY,
+        },
+      };
+    }
+
+    // Early exit if nothing changed - prevents calling set() and unnecessary re-renders
+    if (!hasChanges) {
+      return;
+    }
+
+    // Only call set() when changes detected
+    set({
+      measurements: updatedMeasurements,
+      activeMeasurement: updatedActiveMeasurement,
+    });
+  },
+
+  // Snap actions
+  setSnapTarget: (snapTarget) => set({ snapTarget }),
+  setSnapVisualization: (snapVisualization) => set({ snapVisualization }),
+  toggleSnap: () => set((state) => ({ snapEnabled: !state.snapEnabled })),
 
   // Section plane actions
   setSectionPlaneAxis: (axis) => set((state) => ({
@@ -509,6 +707,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     selectedStoreys: new Set(),
     hiddenEntities: new Set(),
     isolatedEntities: null,
+    pendingColorUpdates: null,
     typeVisibility: {
       spaces: false,
       openings: false,
@@ -518,6 +717,8 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
     measurements: [],
     pendingMeasurePoint: null,
+    activeMeasurement: null,
+    snapTarget: null,
     sectionPlane: { axis: 'y', position: 50, enabled: false },
     cameraRotation: { azimuth: 45, elevation: 25 },
     activeTool: 'select',

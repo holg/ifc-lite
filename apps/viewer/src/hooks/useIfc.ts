@@ -23,7 +23,15 @@ import {
 import { getCached, setCached, type CacheResult } from '../services/ifc-cache.js';
 import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
-import { IfcServerClient, decodeDataModel, type ParquetBatch } from '@ifc-lite/server-client';
+import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel } from '@ifc-lite/server-client';
+
+// Define QuantitySet type inline (matches server-client's QuantitySet interface)
+interface ServerQuantitySet {
+  qset_id: number;
+  qset_name: string;
+  method_of_measurement?: string;
+  quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }>;
+}
 import type { DynamicBatchConfig } from '@ifc-lite/geometry';
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
@@ -224,6 +232,7 @@ export function useIfc() {
     setIfcDataStore,
     setGeometryResult,
     appendGeometryBatch,
+    updateMeshColors,
     updateCoordinateInfo,
   } = useViewerStore();
 
@@ -354,8 +363,8 @@ export function useIfc() {
           
           // Calculate storey heights from elevation differences (fallback if no property data)
           if (dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
-            const sortedStoreys = Array.from(dataStore.spatialHierarchy.storeyElevations.entries())
-              .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
+            const entries = Array.from(dataStore.spatialHierarchy.storeyElevations.entries()) as Array<[number, number]>;
+            const sortedStoreys = entries.sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
             for (let i = 0; i < sortedStoreys.length - 1; i++) {
               const [storeyId, elevation] = sortedStoreys[i];
               const nextElevation = sortedStoreys[i + 1][1];
@@ -492,6 +501,10 @@ export function useIfc() {
 
         const parseStart = performance.now();
 
+        // Throttle server streaming updates - large files get less frequent UI updates
+        let lastServerStreamRenderTime = 0;
+        const SERVER_STREAM_INTERVAL_MS = fileSizeMB > 100 ? 200 : 100;
+
         // Use streaming endpoint with batch callback
         const streamResult = await client.parseParquetStream(file, (batch: ParquetBatch) => {
           batchCount++;
@@ -529,27 +542,36 @@ export function useIfc() {
           // Add to collection
           allMeshes.push(...batchMeshes);
 
-          // Update progress
-          setProgress({
-            phase: `Streaming batch ${batchCount}`,
-            percent: Math.min(15 + (batchCount * 5), 85)
-          });
+          // THROTTLED PROGRESSIVE RENDERING: Update UI at controlled rate
+          // First batch renders immediately, subsequent batches throttled
+          const now = performance.now();
+          const shouldRender = batchCount === 1 || (now - lastServerStreamRenderTime >= SERVER_STREAM_INTERVAL_MS);
 
-          // PROGRESSIVE RENDERING: Set geometry after each batch
-          // This allows the user to see geometry appearing progressively
-          const coordinateInfo = {
-            originShift: { x: 0, y: 0, z: 0 },
-            originalBounds: bounds,
-            shiftedBounds: bounds,
-            isGeoReferenced: false,
-          };
+          if (shouldRender) {
+            lastServerStreamRenderTime = now;
 
-          setGeometryResult({
-            meshes: [...allMeshes], // Clone to trigger re-render
-            totalVertices,
-            totalTriangles,
-            coordinateInfo,
-          });
+            // Update progress
+            setProgress({
+              phase: `Streaming batch ${batchCount}`,
+              percent: Math.min(15 + (batchCount * 5), 85)
+            });
+
+            // PROGRESSIVE RENDERING: Set geometry after each batch
+            // This allows the user to see geometry appearing progressively
+            const coordinateInfo = {
+              originShift: { x: 0, y: 0, z: 0 },
+              originalBounds: bounds,
+              shiftedBounds: bounds,
+              isGeoReferenced: false,
+            };
+
+            setGeometryResult({
+              meshes: [...allMeshes], // Clone to trigger re-render
+              totalVertices,
+              totalTriangles,
+              coordinateInfo,
+            });
+          }
         });
 
         parseTime = performance.now() - parseStart;
@@ -728,12 +750,13 @@ export function useIfc() {
             return;
           }
 
-          const dataModel = await decodeDataModel(dataModelBuffer);
+          const dataModel: DataModel = await decodeDataModel(dataModelBuffer);
 
           console.log(`[useIfc] Data model decoded in ${(performance.now() - dataModelStart).toFixed(0)}ms`);
           console.log(`  Entities: ${dataModel.entities.size}`);
           console.log(`  PropertySets: ${dataModel.propertySets.size}`);
-          console.log(`  QuantitySets: ${dataModel.quantitySets.size}`);
+          const quantitySetsSize = (dataModel as { quantitySets?: Map<number, unknown> }).quantitySets?.size ?? 0;
+          console.log(`  QuantitySets: ${quantitySetsSize}`);
           console.log(`  Relationships: ${dataModel.relationships.length}`);
           console.log(`  Spatial nodes: ${dataModel.spatialHierarchy.nodes.length}`);
 
@@ -1101,7 +1124,7 @@ export function useIfc() {
                 entityToPsets.get(rel.related_id)!.push(pset);
               }
               // Check if it's a quantity set (same relationship type, different definition)
-              const qset = dataModel.quantitySets.get(rel.relating_id);
+              const qset = (dataModel as { quantitySets?: Map<number, ServerQuantitySet> }).quantitySets?.get(rel.relating_id);
               if (qset) {
                 if (!entityToQsets.has(rel.related_id)) {
                   entityToQsets.set(rel.related_id, []);
@@ -1289,6 +1312,9 @@ export function useIfc() {
   const loadFile = useCallback(async (file: File) => {
     const { resetViewerState } = useViewerStore.getState();
 
+    // Track total elapsed time for complete user experience
+    const totalStartTime = performance.now();
+    
     try {
       // Reset all viewer state before loading new file
       resetViewerState();
@@ -1297,10 +1323,12 @@ export function useIfc() {
       setError(null);
       setProgress({ phase: 'Loading file', percent: 0 });
 
-      // Read file
+      // Read file from disk (can take several seconds for large files)
+      const fileReadStart = performance.now();
       const buffer = await file.arrayBuffer();
+      const fileReadTime = performance.now() - fileReadStart;
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
-      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB`);
+      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, read in ${fileReadTime.toFixed(0)}ms`);
 
       // Detect file format (IFCX/IFC5 vs IFC4 STEP)
       const format = detectFormat(buffer);
@@ -1428,6 +1456,8 @@ export function useIfc() {
         if (cacheResult) {
           const success = await loadFromCache(cacheResult, file.name);
           if (success) {
+            const totalElapsedMs = performance.now() - totalStartTime;
+            console.log(`[useIfc] TOTAL LOAD TIME (from cache): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
             setLoading(false);
             return;
           }
@@ -1439,10 +1469,11 @@ export function useIfc() {
       if (format === 'ifc' && USE_SERVER && SERVER_URL && SERVER_URL !== '') {
         setProgress({ phase: 'Trying server', percent: 8 });
         console.log(`[useIfc] Sending ${file.name} (${(buffer.byteLength / (1024 * 1024)).toFixed(2)}MB) to server at ${SERVER_URL}`);
-        // Clone buffer for server parsing (prevents detachment if server fails)
-        const bufferForServer = buffer.slice(0);
-        const serverSuccess = await loadFromServer(file, bufferForServer);
+        // Pass buffer directly - server uses File object for parsing, buffer is only for size checks
+        const serverSuccess = await loadFromServer(file, buffer);
         if (serverSuccess) {
+          const totalElapsedMs = performance.now() - totalStartTime;
+          console.log(`[useIfc] TOTAL LOAD TIME (server): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
           setLoading(false);
           return;
         }
@@ -1458,46 +1489,55 @@ export function useIfc() {
 
       // Initialize geometry processor first (WASM init is fast if already loaded)
       const geometryProcessor = new GeometryProcessor({
-        useWorkers: false,
         quality: GeometryQuality.Balanced
       });
       await geometryProcessor.init();
 
-      // Start data model parsing in parallel (non-blocking)
-      // This parses entities, properties, relationships for the UI panels
-      // Use IfcParser directly - it has async yields every 500 entities so won't block geometry
-      const parser = new IfcParser();
-      const dataStorePromise = parser.parseColumnar(buffer.slice(0), {
-        onProgress: (prog) => {
-          // Update progress in background - don't block geometry
-          console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
-        },
+      // DEFER data model parsing - start it AFTER geometry streaming begins
+      // This ensures geometry gets first crack at the CPU for fast first frame
+      // Data model parsing is lower priority - UI can work without it initially
+      let resolveDataStore: (dataStore: any) => void;
+      const dataStorePromise = new Promise<any>((resolve) => {
+        resolveDataStore = resolve;
       });
 
-      // Handle data model completion in background
-      // On-demand property extraction is now used for all modes - no background parse needed
-      dataStorePromise.then(dataStore => {
-        console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
-        
-        // Calculate storey heights from elevation differences if not already populated
-        if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
-          const sortedStoreys = Array.from(dataStore.spatialHierarchy.storeyElevations.entries())
-            .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
-          for (let i = 0; i < sortedStoreys.length - 1; i++) {
-            const [storeyId, elevation] = sortedStoreys[i];
-            const nextElevation = sortedStoreys[i + 1][1];
-            const height = nextElevation - elevation;
-            if (height > 0) {
-              dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
+      const startDataModelParsing = () => {
+        // Use main thread - worker parsing disabled (IfcDataStore has closures that can't be serialized)
+        const parser = new IfcParser();
+        const wasmApi = geometryProcessor.getApi();
+        parser.parseColumnar(buffer, {
+          wasmApi, // Pass WASM API for 5-10x faster entity scanning
+          onProgress: (prog) => {
+            if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
+              console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
+            }
+          },
+        }).then(dataStore => {
+          console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
+          
+          // Calculate storey heights from elevation differences if not already populated
+          if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
+            const sortedStoreys = Array.from(dataStore.spatialHierarchy.storeyElevations.entries())
+              .sort((a, b) => a[1] - b[1]);
+            for (let i = 0; i < sortedStoreys.length - 1; i++) {
+              const [storeyId, elevation] = sortedStoreys[i];
+              const nextElevation = sortedStoreys[i + 1][1];
+              const height = nextElevation - elevation;
+              if (height > 0) {
+                dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
+              }
             }
           }
-          console.log(`[useIfc] Calculated ${dataStore.spatialHierarchy.storeyHeights.size} storey heights from elevation differences`);
-        }
-        
-        setIfcDataStore(dataStore);
-      }).catch(err => {
-        console.error('[useIfc] Data model parsing failed:', err);
-      });
+          
+          setIfcDataStore(dataStore);
+          resolveDataStore(dataStore);
+        }).catch(err => {
+          console.error('[useIfc] Data model parsing failed:', err);
+        });
+      };
+
+      // Schedule data model parsing to start after geometry begins streaming
+      setTimeout(startDataModelParsing, 0);
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -1517,9 +1557,13 @@ export function useIfc() {
 
       // OPTIMIZATION: Accumulate meshes and batch state updates
       // First batch renders immediately, then accumulate for throughput
+      // Adaptive interval: larger files get less frequent updates to reduce React re-render overhead
       let pendingMeshes: MeshData[] = [];
       let lastRenderTime = 0;
-      const RENDER_INTERVAL_MS = 50; // Max 20 state updates per second after first batch
+      const RENDER_INTERVAL_MS = fileSizeMB > 100 ? 200  // Huge files: 5 updates/sec
+        : fileSizeMB > 50 ? 100   // Large files: 10 updates/sec
+        : fileSizeMB > 20 ? 75    // Medium files: ~13 updates/sec
+        : 50;                      // Small files: 20 updates/sec
 
       try {
         console.log(`[useIfc] Starting geometry streaming IMMEDIATELY (file size: ${fileSizeMB.toFixed(2)}MB)...`);
@@ -1543,6 +1587,11 @@ export function useIfc() {
               setProgress({ phase: 'Processing geometry', percent: 50 });
               console.log(`[useIfc] Model opened at ${(eventReceived - processingStart).toFixed(0)}ms`);
               break;
+            case 'colorUpdate': {
+              // Update colors for already-rendered meshes
+              updateMeshColors(event.updates);
+              break;
+            }
             case 'batch': {
               batchCount++;
               totalWaitTime += waitTime;
@@ -1653,6 +1702,10 @@ export function useIfc() {
         setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
       }
 
+      // Log total elapsed time for complete user experience
+      const totalElapsedMs = performance.now() - totalStartTime;
+      console.log(`[useIfc] TOTAL LOAD TIME: ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
+      
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
