@@ -7,6 +7,11 @@
 use crate::{EntityInfo, IfcMesh};
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_arch = "wasm32")]
+use crate::mesh::MeshGeometry;
+#[cfg(target_arch = "wasm32")]
+use std::sync::Arc;
+
 /// Binary format header magic number
 #[allow(dead_code)]
 const BINARY_MAGIC: u32 = 0x49464342; // "IFCB" in ASCII
@@ -200,9 +205,7 @@ mod wasm_storage {
 
             meshes.push(IfcMesh {
                 entity_id,
-                positions,
-                normals,
-                indices,
+                geometry: Arc::new(MeshGeometry::new(positions, normals, indices)),
                 color,
                 transform,
                 entity_type,

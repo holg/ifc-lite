@@ -63,7 +63,7 @@ fn init_debug_from_url() {
 // Re-exports
 pub use camera::{CameraController, CameraMode, CameraPlugin};
 pub use loader::{LoadIfcFileEvent, LoaderPlugin, OpenFileDialogRequest};
-pub use mesh::{AutoFitState, IfcEntity, IfcMesh, MeshPlugin};
+pub use mesh::{AutoFitState, IfcEntity, IfcMesh, IfcMeshSerialized, MeshGeometry, MeshPlugin};
 pub use picking::{PickingPlugin, SelectionState};
 pub use section::{SectionPlane, SectionPlanePlugin};
 pub use storage::*;

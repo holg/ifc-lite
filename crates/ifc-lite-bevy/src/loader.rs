@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
 use bevy::tasks::Task;
 use ifc_lite_core::{EntityDecoder, EntityScanner};
-use ifc_lite_geometry::{GeometryRouter, Mesh};
+use ifc_lite_geometry::GeometryRouter;
 use std::path::PathBuf;
 
 /// Plugin for file loading functionality
@@ -246,8 +246,15 @@ fn load_ifc_file(
             continue;
         }
 
-        // Convert to IfcMesh format
-        let ifc_mesh = mesh_to_ifc_mesh(id as u64, &type_name, name.as_deref(), &mesh);
+        // Convert to IfcMesh format - takes ownership of mesh, no cloning!
+        let color = crate::mesh::get_default_color(&type_name);
+        let ifc_mesh = IfcMesh::from_geometry_mesh(
+            id as u64,
+            mesh,  // Move, not clone
+            color,
+            type_name.clone(),
+            name.clone(),
+        );
         meshes.push(ifc_mesh);
 
         // Add entity info
@@ -261,26 +268,4 @@ fn load_ifc_file(
     }
 
     Ok((meshes, entities))
-}
-
-/// Convert geometry mesh to IfcMesh format for Bevy viewer
-fn mesh_to_ifc_mesh(id: u64, entity_type: &str, name: Option<&str>, mesh: &Mesh) -> IfcMesh {
-    // Get default color for entity type
-    let color = crate::mesh::get_default_color(entity_type);
-
-    IfcMesh {
-        entity_id: id,
-        positions: mesh.positions.clone(),
-        normals: mesh.normals.clone(),
-        indices: mesh.indices.clone(),
-        color,
-        transform: [
-            1.0, 0.0, 0.0, 0.0, // column 0
-            0.0, 1.0, 0.0, 0.0, // column 1
-            0.0, 0.0, 1.0, 0.0, // column 2
-            0.0, 0.0, 0.0, 1.0, // column 3
-        ],
-        entity_type: entity_type.to_string(),
-        name: name.map(|s| s.to_string()),
-    }
 }

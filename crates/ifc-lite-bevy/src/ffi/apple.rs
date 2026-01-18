@@ -3,7 +3,9 @@
 //! These functions are called from Swift to control the Bevy app.
 
 use crate::{
-    mesh::IfcMesh, native_view::AppViews, EntityInfo, IfcSceneData, IfcViewerPlugin, ViewerSettings,
+    mesh::{IfcMesh, IfcMeshSerialized},
+    native_view::AppViews,
+    EntityInfo, IfcSceneData, IfcViewerPlugin, ViewerSettings,
 };
 use bevy::prelude::*;
 use std::ffi::c_void;
@@ -134,13 +136,15 @@ pub unsafe extern "C" fn load_geometry(
         Err(_) => return false,
     };
 
-    let meshes: Vec<IfcMesh> = match serde_json::from_str(json_str) {
+    // Deserialize to serialized format, then convert to Arc-based IfcMesh
+    let serialized: Vec<IfcMeshSerialized> = match serde_json::from_str(json_str) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Failed to parse meshes JSON: {}", e);
             return false;
         }
     };
+    let meshes: Vec<IfcMesh> = serialized.into_iter().map(IfcMesh::from).collect();
 
     let app = &mut (*bevy_app).app;
 
