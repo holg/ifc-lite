@@ -16,10 +16,8 @@ struct ContentView: View {
         } detail: {
             // Center - 3D Viewport + Right panel
             HStack(spacing: 0) {
-                // 3D Viewport - use placeholder for now until Bevy is fully integrated
-                // To use actual Bevy rendering, replace ViewportView() with:
-                // BevyMetalView(controller: bevyController.controller)
-                ViewportView()
+                // 3D Viewport - uses Bevy by default, SceneKit as fallback
+                ViewportView(bevyController: bevyController.controller)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 // Right panel - Properties

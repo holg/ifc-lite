@@ -24,3 +24,5 @@ tests/test_geometry
 packages/wasm/debug-*.js
 packages/wasm/benchmark.js
 packages/wasm/test-parser.js
+crates/ifc-lite-swift/IfcLiteViewer/.build
+crates/ifc-lite-ffi/output

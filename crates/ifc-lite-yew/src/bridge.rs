@@ -37,6 +37,7 @@ pub const SELECTION_KEY: &str = "ifc_lite_selection";
 pub const VISIBILITY_KEY: &str = "ifc_lite_visibility";
 pub const CAMERA_KEY: &str = "ifc_lite_camera";
 pub const TIMESTAMP_KEY: &str = "ifc_lite_timestamp";
+pub const SELECTION_SOURCE_KEY: &str = "ifc_lite_selection_source";
 pub const SECTION_KEY: &str = "ifc_lite_section";
 pub const FOCUS_KEY: &str = "ifc_lite_focus";
 pub const CAMERA_CMD_KEY: &str = "ifc_lite_camera_cmd";
@@ -273,14 +274,21 @@ pub fn save_entities(entities: &[EntityData]) {
     }
 }
 
-/// Save selection state for Bevy
+/// Save selection state for Bevy (marks source as "yew")
 pub fn save_selection(selection: &SelectionData) {
     if let Some(storage) = get_storage() {
         if let Ok(json) = serde_json::to_string(selection) {
             let _ = storage.set_item(SELECTION_KEY, &json);
+            let _ = storage.set_item(SELECTION_SOURCE_KEY, "yew");
             update_timestamp();
         }
     }
+}
+
+/// Get the source of the last selection change ("yew" or "bevy")
+pub fn get_selection_source() -> Option<String> {
+    let storage = get_storage()?;
+    storage.get_item(SELECTION_SOURCE_KEY).ok()?
 }
 
 /// Load selection state from Bevy

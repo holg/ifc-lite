@@ -32,10 +32,10 @@ features = []
 
 [bundles]
 # Which bundles to build
-leptos = true   # Actually Yew, but the script calls it "leptos"
+leptos = true # Actually Yew, but the script calls it "leptos"
 bevy = true
-typst = false   # No typst/PDF support in ifc-lite
-gmaps = false   # No Google Maps in ifc-lite
+typst = false # No typst/PDF support in ifc-lite
+gmaps = false # No Google Maps in ifc-lite
 
 [bundles.leptos]
 description = "Yew IFC viewer UI"

@@ -423,11 +423,15 @@ fn extract_properties_and_quantities(
                                     (val, "m".to_string(), "Length".to_string())
                                 }
                                 ifc_lite_core::IfcType::IfcQuantityArea => {
-                                    let val = qty.get_float(3).unwrap_or(0.0) * unit_scale * unit_scale;
+                                    let val =
+                                        qty.get_float(3).unwrap_or(0.0) * unit_scale * unit_scale;
                                     (val, "m²".to_string(), "Area".to_string())
                                 }
                                 ifc_lite_core::IfcType::IfcQuantityVolume => {
-                                    let val = qty.get_float(3).unwrap_or(0.0) * unit_scale * unit_scale * unit_scale;
+                                    let val = qty.get_float(3).unwrap_or(0.0)
+                                        * unit_scale
+                                        * unit_scale
+                                        * unit_scale;
                                     (val, "m³".to_string(), "Volume".to_string())
                                 }
                                 ifc_lite_core::IfcType::IfcQuantityCount => {

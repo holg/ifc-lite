@@ -3,9 +3,9 @@
 //! Handles raycasting for object selection and hover detection.
 
 use crate::camera::MainCamera;
-use crate::mesh::IfcEntity;
+use crate::mesh::{BatchedMesh, TriangleEntityMapping};
 use crate::storage::{save_selection, SelectionStorage};
-use bevy::camera::primitives::MeshAabb;
+use bevy::math::Affine3A;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use rustc_hash::FxHashSet;
@@ -17,7 +17,12 @@ impl Plugin for PickingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SelectionState>()
             .init_resource::<PickingSettings>()
-            .add_systems(Update, (picking_system, hover_system));
+            // Run picking after camera input so we can see just_clicked flag
+            .add_systems(
+                Update,
+                (picking_system, hover_system)
+                    .after(crate::camera::CameraPlugin::input_system_set()),
+            );
     }
 }
 
@@ -99,58 +104,57 @@ impl Default for PickingSettings {
     }
 }
 
-/// Picking system - handles click selection
-#[allow(clippy::too_many_arguments, unused_variables)]
+/// Picking system - handles click selection on batched meshes
+#[allow(clippy::too_many_arguments)]
 fn picking_system(
-    mouse_button: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    entities: Query<(&IfcEntity, &GlobalTransform, &Mesh3d)>,
+    batched_meshes: Query<(&BatchedMesh, &GlobalTransform, &Mesh3d)>,
+    triangle_mapping: Res<TriangleEntityMapping>,
     meshes: Res<Assets<Mesh>>,
     mut selection: ResMut<SelectionState>,
     settings: Res<PickingSettings>,
-    #[cfg(feature = "bevy-ui")] ui_interactions: Query<&Interaction, With<bevy::ui::Node>>,
+    mut camera_controller: ResMut<crate::camera::CameraController>,
 ) {
     if !settings.enabled {
         return;
     }
 
-    if !mouse_button.just_pressed(MouseButton::Left) {
+    // Use camera controller's click detection (click = press+release without drag)
+    if !camera_controller.just_clicked {
         return;
     }
 
-    // Don't pick if clicking on UI elements (only when bevy-ui feature is enabled)
-    #[cfg(feature = "bevy-ui")]
-    let mouse_over_ui = ui_interactions
-        .iter()
-        .any(|interaction| matches!(interaction, Interaction::Hovered | Interaction::Pressed));
-    #[cfg(feature = "bevy-ui")]
-    if mouse_over_ui {
-        return;
-    }
+    // Reset the flag so we only process once
+    camera_controller.just_clicked = false;
 
-    let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.cursor_position() else {
-        return;
-    };
     let Ok((camera, camera_transform)) = cameras.single() else {
         return;
     };
 
-    // Create ray from camera through cursor
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+    // Use the position where the click started
+    let click_pos = camera_controller.drag_start_pos;
+
+    // Create ray from camera through click position
+    let Ok(ray) = camera.viewport_to_world(camera_transform, click_pos) else {
         return;
     };
 
-    // Find closest intersection
+    // Find closest intersection in batched meshes
     let mut closest: Option<(u64, f32)> = None;
 
-    for (ifc_entity, transform, mesh_handle) in entities.iter() {
+    for (batched_mesh, transform, mesh_handle) in batched_meshes.iter() {
         if let Some(mesh) = meshes.get(&mesh_handle.0) {
-            if let Some(distance) = ray_mesh_intersection(&ray, mesh, transform) {
-                if closest.map(|(_, d)| distance < d).unwrap_or(true) {
-                    closest = Some((ifc_entity.id, distance));
+            if let Some((distance, triangle_index)) =
+                ray_mesh_intersection_with_triangle(&ray, mesh, transform)
+            {
+                // Look up which entity this triangle belongs to
+                if let Some(entity_id) =
+                    triangle_mapping.get_entity(batched_mesh.is_transparent, triangle_index)
+                {
+                    if closest.map(|(_, d)| distance < d).unwrap_or(true) {
+                        closest = Some((entity_id, distance));
+                    }
                 }
             }
         }
@@ -176,11 +180,13 @@ fn picking_system(
     }
 }
 
-/// Hover system - detects entity under cursor
+/// Hover system - detects entity under cursor using batched meshes
+#[allow(clippy::too_many_arguments)]
 fn hover_system(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    entities: Query<(&IfcEntity, &GlobalTransform, &Mesh3d)>,
+    batched_meshes: Query<(&BatchedMesh, &GlobalTransform, &Mesh3d)>,
+    triangle_mapping: Res<TriangleEntityMapping>,
     meshes: Res<Assets<Mesh>>,
     mut selection: ResMut<SelectionState>,
     settings: Res<PickingSettings>,
@@ -212,14 +218,21 @@ fn hover_system(
         return;
     };
 
-    // Find closest intersection
+    // Find closest intersection in batched meshes
     let mut closest: Option<(u64, f32)> = None;
 
-    for (ifc_entity, transform, mesh_handle) in entities.iter() {
+    for (batched_mesh, transform, mesh_handle) in batched_meshes.iter() {
         if let Some(mesh) = meshes.get(&mesh_handle.0) {
-            if let Some(distance) = ray_mesh_intersection(&ray, mesh, transform) {
-                if closest.map(|(_, d)| distance < d).unwrap_or(true) {
-                    closest = Some((ifc_entity.id, distance));
+            if let Some((distance, triangle_index)) =
+                ray_mesh_intersection_with_triangle(&ray, mesh, transform)
+            {
+                // Look up which entity this triangle belongs to
+                if let Some(entity_id) =
+                    triangle_mapping.get_entity(batched_mesh.is_transparent, triangle_index)
+                {
+                    if closest.map(|(_, d)| distance < d).unwrap_or(true) {
+                        closest = Some((entity_id, distance));
+                    }
                 }
             }
         }
@@ -232,33 +245,111 @@ fn hover_system(
     }
 }
 
-/// Simple ray-mesh intersection using bounding box (fast approximation)
-/// For more accurate picking, use bevy_mod_raycast or similar
-fn ray_mesh_intersection(ray: &Ray3d, mesh: &Mesh, transform: &GlobalTransform) -> Option<f32> {
-    // Get mesh AABB
-    let aabb = mesh.compute_aabb()?;
+/// Ray-mesh intersection with triangle index for batched mesh picking
+/// Returns (distance, triangle_index) of the closest hit
+fn ray_mesh_intersection_with_triangle(
+    ray: &Ray3d,
+    mesh: &Mesh,
+    transform: &GlobalTransform,
+) -> Option<(f32, usize)> {
+    // Get vertex positions
+    let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?.as_float3()?;
 
-    // Transform AABB to world space (approximate)
-    // Convert Vec3A to Vec3 for multiplication with scale
-    let center: Vec3 = aabb.center.into();
-    let half_extents: Vec3 = aabb.half_extents.into();
+    // First do a quick AABB check from vertex positions
+    let transform_matrix = transform.affine();
+    let (min, max) = compute_world_aabb(positions, &transform_matrix);
 
-    let world_center = transform.transform_point(center);
-    let scale = transform.to_scale_rotation_translation().0;
-    let world_half_extents = half_extents * scale;
+    // Quick AABB rejection test
+    if !ray_aabb_intersects(ray, min, max) {
+        return None;
+    }
 
-    let min: Vec3 = world_center - world_half_extents;
-    let max: Vec3 = world_center + world_half_extents;
+    // Get indices
+    let indices = mesh.indices()?;
+    let indices: Vec<usize> = indices.iter().collect();
 
-    // Ray-AABB intersection (slab method)
+    let mut closest: Option<(f32, usize)> = None;
+
+    // Iterate through triangles
+    for (tri_idx, chunk) in indices.chunks(3).enumerate() {
+        if chunk.len() < 3 {
+            continue;
+        }
+        let v0 = transform_matrix.transform_point3(Vec3::from(positions[chunk[0]]));
+        let v1 = transform_matrix.transform_point3(Vec3::from(positions[chunk[1]]));
+        let v2 = transform_matrix.transform_point3(Vec3::from(positions[chunk[2]]));
+
+        if let Some(t) = ray_triangle_intersection(ray, v0, v1, v2) {
+            if t > 0.0 && closest.map(|(d, _)| t < d).unwrap_or(true) {
+                closest = Some((t, tri_idx));
+            }
+        }
+    }
+
+    closest
+}
+
+/// Compute world-space AABB from vertex positions
+fn compute_world_aabb(positions: &[[f32; 3]], transform: &Affine3A) -> (Vec3, Vec3) {
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+
+    for pos in positions {
+        let world_pos = transform.transform_point3(Vec3::from(*pos));
+        min = min.min(world_pos);
+        max = max.max(world_pos);
+    }
+
+    (min, max)
+}
+
+/// Möller–Trumbore ray-triangle intersection algorithm
+fn ray_triangle_intersection(ray: &Ray3d, v0: Vec3, v1: Vec3, v2: Vec3) -> Option<f32> {
+    const EPSILON: f32 = 1e-7;
+
+    let edge1 = v1 - v0;
+    let edge2 = v2 - v0;
+    let h = ray.direction.cross(edge2);
+    let a = edge1.dot(h);
+
+    // Ray is parallel to triangle
+    if a.abs() < EPSILON {
+        return None;
+    }
+
+    let f = 1.0 / a;
+    let s = ray.origin - v0;
+    let u = f * s.dot(h);
+
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+
+    let q = s.cross(edge1);
+    let v = f * ray.direction.dot(q);
+
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+
+    let t = f * edge2.dot(q);
+    if t > EPSILON {
+        Some(t)
+    } else {
+        None
+    }
+}
+
+/// Quick ray-AABB intersection test
+fn ray_aabb_intersects(ray: &Ray3d, min: Vec3, max: Vec3) -> bool {
     let inv_dir = Vec3::new(
         1.0 / ray.direction.x,
         1.0 / ray.direction.y,
         1.0 / ray.direction.z,
     );
 
-    let t1: Vec3 = (min - ray.origin) * inv_dir;
-    let t2: Vec3 = (max - ray.origin) * inv_dir;
+    let t1 = (min - ray.origin) * inv_dir;
+    let t2 = (max - ray.origin) * inv_dir;
 
     let tmin = t1.min(t2);
     let tmax = t1.max(t2);
@@ -266,9 +357,5 @@ fn ray_mesh_intersection(ray: &Ray3d, mesh: &Mesh, transform: &GlobalTransform) 
     let t_enter = tmin.x.max(tmin.y).max(tmin.z);
     let t_exit = tmax.x.min(tmax.y).min(tmax.z);
 
-    if t_enter <= t_exit && t_exit >= 0.0 {
-        Some(t_enter.max(0.0))
-    } else {
-        None
-    }
+    t_enter <= t_exit && t_exit >= 0.0
 }

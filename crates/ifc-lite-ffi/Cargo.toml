@@ -43,10 +43,12 @@ thiserror = "2.0"
 # Android specific
 [target.'cfg(target_os = "android")'.dependencies]
 
-# iOS/macOS specific
+# iOS/macOS specific - include Bevy viewer
 [target.'cfg(target_os = "ios")'.dependencies]
+ifc-lite-bevy = { path = "../ifc-lite-bevy" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+ifc-lite-bevy = { path = "../ifc-lite-bevy" }
 
 [dev-dependencies]
 uniffi = { version = "0.28", features = ["bindgen-tests"] }

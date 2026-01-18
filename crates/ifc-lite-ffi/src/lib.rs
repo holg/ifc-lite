@@ -1550,3 +1550,228 @@ mod tests {
         );
     }
 }
+
+// ============================================================================
+// Bevy 3D Viewer (iOS/macOS only)
+// ============================================================================
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+mod bevy_viewer {
+    use std::sync::Mutex;
+
+    /// Bevy 3D viewer handle
+    ///
+    /// This wraps the Bevy app and provides a safe interface for Swift.
+    /// The view_ptr is passed as u64 since UniFFI doesn't support raw pointers.
+    #[derive(uniffi::Object)]
+    pub struct BevyViewer {
+        app: Mutex<Option<*mut ifc_lite_bevy::ffi::BevyApp>>,
+    }
+
+    // Safety: BevyApp is only accessed from the main thread via display link
+    unsafe impl Send for BevyViewer {}
+    unsafe impl Sync for BevyViewer {}
+
+    #[uniffi::export]
+    impl BevyViewer {
+        /// Create a new Bevy viewer attached to a native Metal view
+        ///
+        /// # Arguments
+        /// * `view_ptr` - Pointer to UIView (iOS) or NSView (macOS) as u64
+        /// * `scale_factor` - Screen scale factor (e.g., 2.0 for Retina)
+        #[uniffi::constructor]
+        pub fn new(view_ptr: u64, scale_factor: f32) -> Self {
+            let app = unsafe {
+                ifc_lite_bevy::ffi::create_bevy_app(
+                    view_ptr as *mut std::ffi::c_void,
+                    60, // max fps
+                    scale_factor,
+                )
+            };
+            Self {
+                app: Mutex::new(Some(app)),
+            }
+        }
+
+        /// Process a single frame (call from display link)
+        pub fn enter_frame(&self) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::enter_frame(app);
+                }
+            }
+        }
+
+        /// Load geometry into the viewer
+        pub fn load_geometry(&self, meshes_json: String) -> bool {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                let c_string = std::ffi::CString::new(meshes_json).unwrap();
+                unsafe { ifc_lite_bevy::ffi::load_geometry(app, c_string.as_ptr()) }
+            } else {
+                false
+            }
+        }
+
+        /// Load entity metadata
+        pub fn load_entities(&self, entities_json: String) -> bool {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                let c_string = std::ffi::CString::new(entities_json).unwrap();
+                unsafe { ifc_lite_bevy::ffi::load_entities(app, c_string.as_ptr()) }
+            } else {
+                false
+            }
+        }
+
+        /// Select an entity by ID
+        pub fn select_entity(&self, entity_id: u64) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::select_entity(app, entity_id);
+                }
+            }
+        }
+
+        /// Clear selection
+        pub fn clear_selection(&self) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::clear_selection(app);
+                }
+            }
+        }
+
+        /// Hide an entity
+        pub fn hide_entity(&self, entity_id: u64) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::hide_entity(app, entity_id);
+                }
+            }
+        }
+
+        /// Show an entity
+        pub fn show_entity(&self, entity_id: u64) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::show_entity(app, entity_id);
+                }
+            }
+        }
+
+        /// Show all entities
+        pub fn show_all(&self) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::show_all(app);
+                }
+            }
+        }
+
+        /// Reset camera to home view
+        pub fn camera_home(&self) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::camera_home(app);
+                }
+            }
+        }
+
+        /// Fit camera to show all geometry
+        pub fn camera_fit_all(&self) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::camera_fit_all(app);
+                }
+            }
+        }
+
+        /// Focus camera on a specific entity
+        pub fn camera_focus_entity(&self, entity_id: u64) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::camera_focus_entity(app, entity_id);
+                }
+            }
+        }
+
+        /// Handle touch started
+        pub fn touch_started(&self, x: f32, y: f32) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::touch_started(app, x, y);
+                }
+            }
+        }
+
+        /// Handle touch moved
+        pub fn touch_moved(&self, x: f32, y: f32) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::touch_moved(app, x, y);
+                }
+            }
+        }
+
+        /// Handle touch ended
+        pub fn touch_ended(&self, x: f32, y: f32) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::touch_ended(app, x, y);
+                }
+            }
+        }
+
+        /// Handle touch cancelled
+        pub fn touch_cancelled(&self, x: f32, y: f32) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::touch_cancelled(app, x, y);
+                }
+            }
+        }
+
+        /// Set theme (dark/light)
+        pub fn set_theme(&self, dark: bool) {
+            let guard = self.app.lock().unwrap();
+            if let Some(app) = *guard {
+                unsafe {
+                    ifc_lite_bevy::ffi::set_theme(app, dark);
+                }
+            }
+        }
+
+        /// Stop and release the Bevy app
+        pub fn stop(&self) {
+            let mut guard = self.app.lock().unwrap();
+            if let Some(app) = guard.take() {
+                unsafe {
+                    ifc_lite_bevy::ffi::release_bevy_app(app);
+                }
+            }
+        }
+    }
+
+    impl Drop for BevyViewer {
+        fn drop(&mut self) {
+            self.stop();
+        }
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub use bevy_viewer::BevyViewer;

@@ -153,7 +153,16 @@ let package = Package(
         .target(
             name: "IfcLite",
             dependencies: ["IfcLiteFFI"],
-            path: "Sources/IfcLite"
+            path: "Sources/IfcLite",
+            linkerSettings: [
+                // Bevy/winit dependencies on macOS
+                .linkedFramework("Carbon", .when(platforms: [.macOS])),
+                .linkedFramework("Metal"),
+                .linkedFramework("QuartzCore"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("AppKit", .when(platforms: [.macOS])),
+                .linkedFramework("UIKit", .when(platforms: [.iOS])),
+            ]
         ),
         .binaryTarget(
             name: "IfcLiteFFI",

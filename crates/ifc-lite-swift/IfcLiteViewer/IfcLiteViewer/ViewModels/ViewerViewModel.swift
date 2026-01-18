@@ -35,6 +35,11 @@ class ViewerViewModel: ObservableObject {
     @Published var rightPanelVisible = true
     @Published var isDarkMode = true
 
+    // MARK: - Renderer Selection
+    /// Which 3D renderer to use (Bevy is default, SceneKit as fallback)
+    /// NOTE: Bevy integration is WIP, using SceneKit by default for now
+    @Published var useBevy = false
+
     // MARK: - Camera Commands
     @Published var zoomToEntityId: UInt64? = nil
 

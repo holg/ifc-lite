@@ -9,6 +9,10 @@ use bevy::ecs::message::MessageReader;
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 
+/// System set for camera input (for ordering)
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CameraInputSet;
+
 /// Camera controller plugin
 pub struct CameraPlugin;
 
@@ -24,8 +28,16 @@ impl Plugin for CameraPlugin {
                     camera_update_system,
                     camera_keyboard_system,
                 )
-                    .chain(),
+                    .chain()
+                    .in_set(CameraInputSet),
             );
+    }
+}
+
+impl CameraPlugin {
+    /// Get the system set for camera input (for ordering picking after camera)
+    pub fn input_system_set() -> CameraInputSet {
+        CameraInputSet
     }
 }
 
@@ -79,6 +91,12 @@ pub struct CameraController {
     pub is_dragging: bool,
     /// Last mouse position
     pub last_mouse_pos: Vec2,
+    /// Mouse position when drag started (for click detection)
+    pub drag_start_pos: Vec2,
+    /// Did actual dragging occur (mouse moved significantly)?
+    pub did_drag: bool,
+    /// Was this a click (released without dragging)?
+    pub just_clicked: bool,
 }
 
 impl Default for CameraController {
@@ -103,6 +121,9 @@ impl Default for CameraController {
             zoom_sensitivity: 0.1,
             is_dragging: false,
             last_mouse_pos: Vec2::ZERO,
+            drag_start_pos: Vec2::ZERO,
+            did_drag: false,
+            just_clicked: false,
         }
     }
 }
@@ -327,17 +348,29 @@ fn camera_input_system(
     // Handle mouse button state - only start drag if not over UI
     if mouse_button.just_pressed(MouseButton::Left) && !mouse_over_ui {
         controller.is_dragging = true;
+        controller.did_drag = false;
+        controller.just_clicked = false; // Reset on press
         if let Some(pos) = window.cursor_position() {
             controller.last_mouse_pos = pos;
+            controller.drag_start_pos = pos;
         }
     }
     if mouse_button.just_released(MouseButton::Left) {
+        // Check if this was a click (no significant drag)
+        if !controller.did_drag {
+            controller.just_clicked = true;
+        }
         controller.is_dragging = false;
     }
 
     // Handle mouse motion
     if controller.is_dragging {
         for ev in mouse_motion.read() {
+            // Mark as drag if mouse moved significantly (more than 3 pixels)
+            if ev.delta.length() > 3.0 {
+                controller.did_drag = true;
+            }
+
             match controller.mode {
                 CameraMode::Orbit => {
                     controller.azimuth -= ev.delta.x * controller.orbit_sensitivity;

@@ -15,7 +15,6 @@ use crate::{log, IfcSceneData, SceneBounds, ViewerSettings};
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
 /// Mesh plugin
@@ -25,6 +24,7 @@ impl Plugin for MeshPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AutoFitState>()
             .init_resource::<PendingFocus>()
+            .init_resource::<TriangleEntityMapping>()
             .add_systems(
                 Update,
                 (
@@ -168,12 +168,25 @@ pub struct BatchedMesh {
     pub is_transparent: bool,
 }
 
-/// Resource mapping entity IDs to their vertex ranges in batched mesh
+/// Resource mapping triangle indices to entity IDs for picking
 #[derive(Resource, Default)]
-pub struct EntityMeshMapping {
-    /// Maps entity ID to (batch_entity, start_vertex, vertex_count)
-    pub opaque: FxHashMap<u64, (usize, usize)>,
-    pub transparent: FxHashMap<u64, (usize, usize)>,
+pub struct TriangleEntityMapping {
+    /// Maps triangle index -> entity ID for opaque batch
+    pub opaque: Vec<u64>,
+    /// Maps triangle index -> entity ID for transparent batch
+    pub transparent: Vec<u64>,
+}
+
+impl TriangleEntityMapping {
+    /// Look up entity ID from triangle index
+    pub fn get_entity(&self, is_transparent: bool, triangle_index: usize) -> Option<u64> {
+        let mapping = if is_transparent {
+            &self.transparent
+        } else {
+            &self.opaque
+        };
+        mapping.get(triangle_index).copied()
+    }
 }
 
 /// Batched geometry builder - combines multiple meshes into one
@@ -182,29 +195,18 @@ struct BatchBuilder {
     normals: Vec<[f32; 3]>,
     colors: Vec<[f32; 4]>,
     indices: Vec<u32>,
-    /// Maps entity_id -> (start_vertex_index, vertex_count)
-    entity_ranges: FxHashMap<u64, (usize, usize)>,
+    /// Maps triangle index -> entity_id (for picking)
+    triangle_to_entity: Vec<u64>,
 }
 
 impl BatchBuilder {
-    #[allow(dead_code)]
-    fn new() -> Self {
-        Self {
-            positions: Vec::new(),
-            normals: Vec::new(),
-            colors: Vec::new(),
-            indices: Vec::new(),
-            entity_ranges: FxHashMap::default(),
-        }
-    }
-
     fn with_capacity(vertex_hint: usize, index_hint: usize) -> Self {
         Self {
             positions: Vec::with_capacity(vertex_hint),
             normals: Vec::with_capacity(vertex_hint),
             colors: Vec::with_capacity(vertex_hint),
             indices: Vec::with_capacity(index_hint),
-            entity_ranges: FxHashMap::default(),
+            triangle_to_entity: Vec::with_capacity(index_hint / 3),
         }
     }
 
@@ -253,15 +255,22 @@ impl BatchBuilder {
             self.colors.push(color);
         }
 
-        // Add indices with offset
+        // Add indices with offset and track triangle-to-entity mapping
         let index_offset = start_vertex as u32;
+        let num_triangles = ifc_mesh.indices.len() / 3;
         for &idx in &ifc_mesh.indices {
             self.indices.push(idx + index_offset);
         }
 
-        // Track entity range for later selection/visibility
-        self.entity_ranges
-            .insert(ifc_mesh.entity_id, (start_vertex, vertex_count));
+        // Map each triangle to its entity ID (for picking)
+        for _ in 0..num_triangles {
+            self.triangle_to_entity.push(ifc_mesh.entity_id);
+        }
+    }
+
+    /// Get the triangle-to-entity mapping (consumes ownership)
+    fn take_triangle_mapping(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.triangle_to_entity)
     }
 
     /// Build final Bevy mesh
@@ -305,6 +314,7 @@ fn spawn_meshes_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut scene_data: ResMut<IfcSceneData>,
+    mut triangle_mapping: ResMut<TriangleEntityMapping>,
     existing_entities: Query<Entity, With<IfcEntity>>,
     existing_batches: Query<Entity, With<BatchedMesh>>,
 ) {
@@ -314,6 +324,10 @@ fn spawn_meshes_system(
 
     let mesh_count = scene_data.meshes.len();
     log(&format!("[Bevy] Batching {} meshes for GPU", mesh_count));
+
+    // Clear previous triangle mapping
+    triangle_mapping.opaque.clear();
+    triangle_mapping.transparent.clear();
 
     // Despawn existing entities and batches
     for entity in existing_entities.iter() {
@@ -386,6 +400,9 @@ fn spawn_meshes_system(
             opaque_batch.triangle_count()
         ));
 
+        // Store triangle-to-entity mapping for picking
+        triangle_mapping.opaque = opaque_batch.take_triangle_mapping();
+
         let mesh = opaque_batch.build();
         let material = StandardMaterial {
             base_color: Color::WHITE,
@@ -415,6 +432,9 @@ fn spawn_meshes_system(
             transparent_batch.vertex_count(),
             transparent_batch.triangle_count()
         ));
+
+        // Store triangle-to-entity mapping for picking
+        triangle_mapping.transparent = transparent_batch.take_triangle_mapping();
 
         let mesh = transparent_batch.build();
         let material = StandardMaterial {
@@ -576,68 +596,68 @@ pub fn get_default_color(entity_type: &str) -> [f32; 4] {
     let upper = entity_type.to_uppercase();
 
     if upper.contains("WALL") {
-        // Walls - light beige/cream (like reference)
-        [0.95, 0.92, 0.85, 1.0]
+        // Walls - warm beige/cream
+        [0.92, 0.85, 0.75, 1.0]
     } else if upper.contains("SLAB") {
-        // Slabs/floors - off-white
-        [0.92, 0.92, 0.90, 1.0]
+        // Slabs/floors - concrete gray
+        [0.75, 0.73, 0.70, 1.0]
     } else if upper.contains("ROOF") {
-        // Roofs - light gray
-        [0.85, 0.85, 0.85, 1.0]
+        // Roofs - terracotta/reddish
+        [0.72, 0.55, 0.45, 1.0]
     } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
-        // Structural elements - light steel gray
-        [0.82, 0.84, 0.88, 1.0]
+        // Structural elements - steel blue-gray
+        [0.60, 0.65, 0.72, 1.0]
     } else if upper.contains("DOOR") {
-        // Doors - wood brown
-        [0.65, 0.45, 0.25, 1.0]
+        // Doors - rich wood brown
+        [0.55, 0.35, 0.20, 1.0]
     } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
-        // Windows/curtain walls - light blue glass (semi-transparent)
-        [0.7, 0.85, 0.95, 0.4]
+        // Windows/curtain walls - blue glass (semi-transparent)
+        [0.5, 0.7, 0.85, 0.35]
     } else if upper.contains("STAIR") || upper.contains("RAMP") {
-        // Stairs/ramps - medium gray
-        [0.75, 0.75, 0.75, 1.0]
+        // Stairs/ramps - warm gray
+        [0.65, 0.62, 0.58, 1.0]
     } else if upper.contains("RAILING") {
-        // Railings - dark gray
-        [0.5, 0.5, 0.5, 1.0]
+        // Railings - dark metallic
+        [0.35, 0.35, 0.38, 1.0]
     } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
-        // Furniture - wood color
-        [0.7, 0.55, 0.35, 1.0]
+        // Furniture - warm wood
+        [0.65, 0.45, 0.28, 1.0]
     } else if upper.contains("SPACE") {
-        // Space - very light, semi-transparent
-        [0.9, 0.9, 0.95, 0.15]
+        // Space - very light blue, semi-transparent
+        [0.8, 0.85, 0.95, 0.12]
     } else if upper.contains("PLATE") {
-        // Plates - light steel
-        [0.8, 0.82, 0.85, 1.0]
+        // Plates - steel
+        [0.68, 0.70, 0.75, 1.0]
     } else if upper.contains("COVERING") {
-        // Coverings - off-white
-        [0.9, 0.9, 0.88, 1.0]
+        // Coverings - light warm gray
+        [0.82, 0.80, 0.76, 1.0]
     } else if upper.contains("FOOTING") || upper.contains("PILE") {
-        // Foundations - concrete gray
-        [0.7, 0.7, 0.68, 1.0]
+        // Foundations - dark concrete
+        [0.55, 0.53, 0.50, 1.0]
     } else if upper.contains("PROXY") {
-        // Building element proxies - light gray
-        [0.8, 0.8, 0.8, 1.0]
+        // Building element proxies - purple tint
+        [0.70, 0.65, 0.75, 1.0]
     } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
-        // MEP flow elements - metallic gray
-        [0.7, 0.72, 0.75, 1.0]
+        // MEP flow elements - green tint
+        [0.55, 0.70, 0.58, 1.0]
     } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
-        // Electrical/energy elements - dark gray with slight blue
-        [0.5, 0.52, 0.58, 1.0]
+        // Electrical/energy elements - yellow tint
+        [0.75, 0.72, 0.45, 1.0]
     } else if upper.contains("SANITARY") || upper.contains("FIRE") {
-        // Plumbing fixtures - white
-        [0.95, 0.95, 0.95, 1.0]
+        // Plumbing fixtures - white ceramic
+        [0.92, 0.92, 0.95, 1.0]
     } else if upper.contains("SHADING") {
-        // Shading devices - medium gray
-        [0.6, 0.6, 0.6, 0.8]
+        // Shading devices - dark blue-gray
+        [0.45, 0.48, 0.55, 0.8]
     } else if upper.contains("TRANSPORT") {
         // Transport elements (elevators, etc) - dark gray
-        [0.45, 0.45, 0.48, 1.0]
+        [0.40, 0.40, 0.42, 1.0]
     } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
-        // Geographic/virtual - very light, semi-transparent
-        [0.85, 0.85, 0.85, 0.3]
+        // Geographic/virtual - light green, semi-transparent
+        [0.75, 0.85, 0.75, 0.25]
     } else {
-        // Default - neutral light gray
-        [0.85, 0.85, 0.85, 1.0]
+        // Default - neutral warm gray
+        [0.75, 0.72, 0.70, 1.0]
     }
 }
 

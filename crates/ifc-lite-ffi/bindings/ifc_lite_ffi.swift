@@ -531,6 +531,400 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 /**
+ * Bevy 3D viewer handle
+ *
+ * This wraps the Bevy app and provides a safe interface for Swift.
+ * The view_ptr is passed as u64 since UniFFI doesn't support raw pointers.
+ */
+public protocol BevyViewerProtocol : AnyObject {
+    
+    /**
+     * Fit camera to show all geometry
+     */
+    func cameraFitAll() 
+    
+    /**
+     * Focus camera on a specific entity
+     */
+    func cameraFocusEntity(entityId: UInt64) 
+    
+    /**
+     * Reset camera to home view
+     */
+    func cameraHome() 
+    
+    /**
+     * Clear selection
+     */
+    func clearSelection() 
+    
+    /**
+     * Process a single frame (call from display link)
+     */
+    func enterFrame() 
+    
+    /**
+     * Hide an entity
+     */
+    func hideEntity(entityId: UInt64) 
+    
+    /**
+     * Load entity metadata
+     */
+    func loadEntities(entitiesJson: String)  -> Bool
+    
+    /**
+     * Load geometry into the viewer
+     */
+    func loadGeometry(meshesJson: String)  -> Bool
+    
+    /**
+     * Select an entity by ID
+     */
+    func selectEntity(entityId: UInt64) 
+    
+    /**
+     * Set theme (dark/light)
+     */
+    func setTheme(dark: Bool) 
+    
+    /**
+     * Show all entities
+     */
+    func showAll() 
+    
+    /**
+     * Show an entity
+     */
+    func showEntity(entityId: UInt64) 
+    
+    /**
+     * Stop and release the Bevy app
+     */
+    func stop() 
+    
+    /**
+     * Handle touch cancelled
+     */
+    func touchCancelled(x: Float, y: Float) 
+    
+    /**
+     * Handle touch ended
+     */
+    func touchEnded(x: Float, y: Float) 
+    
+    /**
+     * Handle touch moved
+     */
+    func touchMoved(x: Float, y: Float) 
+    
+    /**
+     * Handle touch started
+     */
+    func touchStarted(x: Float, y: Float) 
+    
+}
+
+/**
+ * Bevy 3D viewer handle
+ *
+ * This wraps the Bevy app and provides a safe interface for Swift.
+ * The view_ptr is passed as u64 since UniFFI doesn't support raw pointers.
+ */
+open class BevyViewer:
+    BevyViewerProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_ifc_lite_ffi_fn_clone_bevyviewer(self.pointer, $0) }
+    }
+    /**
+     * Create a new Bevy viewer attached to a native Metal view
+     *
+     * # Arguments
+     * * `view_ptr` - Pointer to UIView (iOS) or NSView (macOS) as u64
+     * * `scale_factor` - Screen scale factor (e.g., 2.0 for Retina)
+     */
+public convenience init(viewPtr: UInt64, scaleFactor: Float) {
+    let pointer =
+        try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_constructor_bevyviewer_new(
+        FfiConverterUInt64.lower(viewPtr),
+        FfiConverterFloat.lower(scaleFactor),$0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_ifc_lite_ffi_fn_free_bevyviewer(pointer, $0) }
+    }
+
+    
+
+    
+    /**
+     * Fit camera to show all geometry
+     */
+open func cameraFitAll() {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_camera_fit_all(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+    /**
+     * Focus camera on a specific entity
+     */
+open func cameraFocusEntity(entityId: UInt64) {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_camera_focus_entity(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(entityId),$0
+    )
+}
+}
+    
+    /**
+     * Reset camera to home view
+     */
+open func cameraHome() {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_camera_home(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+    /**
+     * Clear selection
+     */
+open func clearSelection() {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_clear_selection(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+    /**
+     * Process a single frame (call from display link)
+     */
+open func enterFrame() {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_enter_frame(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+    /**
+     * Hide an entity
+     */
+open func hideEntity(entityId: UInt64) {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_hide_entity(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(entityId),$0
+    )
+}
+}
+    
+    /**
+     * Load entity metadata
+     */
+open func loadEntities(entitiesJson: String) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_load_entities(self.uniffiClonePointer(),
+        FfiConverterString.lower(entitiesJson),$0
+    )
+})
+}
+    
+    /**
+     * Load geometry into the viewer
+     */
+open func loadGeometry(meshesJson: String) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_load_geometry(self.uniffiClonePointer(),
+        FfiConverterString.lower(meshesJson),$0
+    )
+})
+}
+    
+    /**
+     * Select an entity by ID
+     */
+open func selectEntity(entityId: UInt64) {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_select_entity(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(entityId),$0
+    )
+}
+}
+    
+    /**
+     * Set theme (dark/light)
+     */
+open func setTheme(dark: Bool) {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_set_theme(self.uniffiClonePointer(),
+        FfiConverterBool.lower(dark),$0
+    )
+}
+}
+    
+    /**
+     * Show all entities
+     */
+open func showAll() {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_show_all(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+    /**
+     * Show an entity
+     */
+open func showEntity(entityId: UInt64) {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_show_entity(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(entityId),$0
+    )
+}
+}
+    
+    /**
+     * Stop and release the Bevy app
+     */
+open func stop() {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_stop(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+    /**
+     * Handle touch cancelled
+     */
+open func touchCancelled(x: Float, y: Float) {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_touch_cancelled(self.uniffiClonePointer(),
+        FfiConverterFloat.lower(x),
+        FfiConverterFloat.lower(y),$0
+    )
+}
+}
+    
+    /**
+     * Handle touch ended
+     */
+open func touchEnded(x: Float, y: Float) {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_touch_ended(self.uniffiClonePointer(),
+        FfiConverterFloat.lower(x),
+        FfiConverterFloat.lower(y),$0
+    )
+}
+}
+    
+    /**
+     * Handle touch moved
+     */
+open func touchMoved(x: Float, y: Float) {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_touch_moved(self.uniffiClonePointer(),
+        FfiConverterFloat.lower(x),
+        FfiConverterFloat.lower(y),$0
+    )
+}
+}
+    
+    /**
+     * Handle touch started
+     */
+open func touchStarted(x: Float, y: Float) {try! rustCall() {
+    uniffi_ifc_lite_ffi_fn_method_bevyviewer_touch_started(self.uniffiClonePointer(),
+        FfiConverterFloat.lower(x),
+        FfiConverterFloat.lower(y),$0
+    )
+}
+}
+    
+
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBevyViewer: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = BevyViewer
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> BevyViewer {
+        return BevyViewer(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: BevyViewer) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BevyViewer {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: BevyViewer, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBevyViewer_lift(_ pointer: UnsafeMutableRawPointer) throws -> BevyViewer {
+    return try FfiConverterTypeBevyViewer.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBevyViewer_lower(_ value: BevyViewer) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeBevyViewer.lower(value)
+}
+
+
+
+
+/**
  * Main IFC Scene interface - thread-safe
  */
 public protocol IfcSceneProtocol : AnyObject {
@@ -2723,6 +3117,57 @@ private var initializationResult: InitializationResult = {
     if (uniffi_ifc_lite_ffi_checksum_func_init_library() != 5655) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_camera_fit_all() != 5254) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_camera_focus_entity() != 6185) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_camera_home() != 791) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_clear_selection() != 53122) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_enter_frame() != 23613) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_hide_entity() != 15198) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_load_entities() != 11974) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_load_geometry() != 13382) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_select_entity() != 21712) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_set_theme() != 42450) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_show_all() != 35222) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_show_entity() != 35946) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_stop() != 36771) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_touch_cancelled() != 57723) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_touch_ended() != 43363) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_touch_moved() != 32495) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_method_bevyviewer_touch_started() != 25653) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ifc_lite_ffi_checksum_method_ifcscene_add_to_selection() != 37207) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2817,6 +3262,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ifc_lite_ffi_checksum_method_ifcscene_toggle_selection() != 40545) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ifc_lite_ffi_checksum_constructor_bevyviewer_new() != 48819) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ifc_lite_ffi_checksum_constructor_ifcscene_new() != 46456) {

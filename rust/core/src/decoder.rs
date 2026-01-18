@@ -55,11 +55,10 @@ pub fn build_entity_index(content: &str) -> EntityIndex {
             // Fast integer parsing without allocation
             let id = parse_u32_inline(bytes, id_start, id_end);
 
-            // Find end of entity (;) using SIMD
-            let entity_content = &bytes[pos..];
-            if let Some(semicolon_offset) = memchr::memchr(b';', entity_content) {
-                pos += semicolon_offset + 1; // Include semicolon
-                index.insert(id, (start, pos));
+            // Find end of entity, skipping quoted strings that may contain semicolons
+            if let Some(end) = find_entity_end_from(bytes, pos) {
+                pos = end;
+                index.insert(id, (start, end));
             } else {
                 break; // No semicolon found, malformed
             }
@@ -67,6 +66,41 @@ pub fn build_entity_index(content: &str) -> EntityIndex {
     }
 
     index
+}
+
+/// Find the end of an entity starting from a position, properly handling quoted strings.
+/// IFC strings use single quotes and escape quotes by doubling them ('').
+#[inline]
+fn find_entity_end_from(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut pos = start;
+    let len = bytes.len();
+
+    while pos < len {
+        let b = bytes[pos];
+
+        if b == b'\'' {
+            // Start of single-quoted string - skip to end
+            pos += 1;
+            while pos < len {
+                if bytes[pos] == b'\'' {
+                    // Check for escaped quote ('')
+                    if pos + 1 < len && bytes[pos + 1] == b'\'' {
+                        pos += 2;
+                        continue;
+                    }
+                    break;
+                }
+                pos += 1;
+            }
+            pos += 1;
+        } else if b == b';' {
+            // Found the entity-terminating semicolon
+            return Some(pos + 1);
+        } else {
+            pos += 1;
+        }
+    }
+    None
 }
 
 /// Fast u32 parsing without string allocation

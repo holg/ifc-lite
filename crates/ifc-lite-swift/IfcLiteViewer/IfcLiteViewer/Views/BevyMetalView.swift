@@ -1,5 +1,6 @@
 import SwiftUI
 import QuartzCore
+import IfcLite
 
 #if os(macOS)
 import AppKit
@@ -78,12 +79,13 @@ class MetalLayerView: PlatformView {
 // MARK: - Bevy View Controller
 
 /// Controller that manages the Bevy app lifecycle and frame updates
+/// Now uses UniFFI-generated BevyViewer from IfcLite
 class BevyViewController {
     private var metalView: MetalLayerView?
     #if os(iOS)
     private var displayLink: CADisplayLink?
     #endif
-    private var bevyApp: OpaquePointer?
+    private var bevyViewer: BevyViewer?
     private var isRunning = false
 
     // Callbacks for events from Bevy
@@ -103,16 +105,11 @@ class BevyViewController {
         metalView = view
         let scaleFactor = Float(view.scaleFactor)
 
-        // Create the Bevy app
-        // Note: This requires the IfcLiteBevy framework to be linked
-        // Uncomment when the framework is available:
-        // let viewPtr = Unmanaged.passUnretained(view).toOpaque()
-        // #if os(macOS)
-        // let maxFps: Int32 = 60
-        // #else
-        // let maxFps = Int32(UIScreen.main.maximumFramesPerSecond)
-        // #endif
-        // bevyApp = create_bevy_app(viewPtr, maxFps, scaleFactor)
+        // Get view pointer as UInt64 for UniFFI
+        let viewPtr = UInt64(UInt(bitPattern: Unmanaged.passUnretained(view).toOpaque()))
+
+        // Create the Bevy viewer via UniFFI
+        bevyViewer = BevyViewer(viewPtr: viewPtr, scaleFactor: scaleFactor)
 
         isRunning = true
         startDisplayLink()
@@ -124,10 +121,9 @@ class BevyViewController {
 
         stopDisplayLink()
 
-        if bevyApp != nil {
-            // Uncomment when framework is linked:
-            // release_bevy_app(bevyApp)
-            bevyApp = nil
+        if let viewer = bevyViewer {
+            viewer.stop()
+            bevyViewer = nil
         }
 
         isRunning = false
@@ -136,9 +132,8 @@ class BevyViewController {
 
     /// Process a single frame
     @objc private func renderFrame() {
-        guard isRunning, bevyApp != nil else { return }
-        // Uncomment when framework is linked:
-        // enter_frame(bevyApp)
+        guard isRunning, let viewer = bevyViewer else { return }
+        viewer.enterFrame()
     }
 
     // MARK: - Display Link
@@ -187,100 +182,78 @@ class BevyViewController {
 
     // MARK: - Data Loading
 
-    /// Load geometry from the view model's meshes
+    /// Load geometry from JSON
     func loadGeometry(meshesJson: String) -> Bool {
-        guard bevyApp != nil else { return false }
-        // return load_geometry(app, meshesJson)
-        return true
+        guard let viewer = bevyViewer else { return false }
+        return viewer.loadGeometry(meshesJson: meshesJson)
     }
 
-    /// Load entities from the view model
+    /// Load entities from JSON
     func loadEntities(entitiesJson: String) -> Bool {
-        guard bevyApp != nil else { return false }
-        // return load_entities(app, entitiesJson)
-        return true
+        guard let viewer = bevyViewer else { return false }
+        return viewer.loadEntities(entitiesJson: entitiesJson)
     }
 
     // MARK: - Selection
 
     func select(entityId: UInt64) {
-        guard bevyApp != nil else { return }
-        // select_entity(app, entityId)
+        bevyViewer?.selectEntity(entityId: entityId)
     }
 
     func clearSelection() {
-        guard bevyApp != nil else { return }
-        // clear_selection(app)
+        bevyViewer?.clearSelection()
     }
 
     // MARK: - Visibility
 
     func hide(entityId: UInt64) {
-        guard bevyApp != nil else { return }
-        // hide_entity(app, entityId)
+        bevyViewer?.hideEntity(entityId: entityId)
     }
 
     func show(entityId: UInt64) {
-        guard bevyApp != nil else { return }
-        // show_entity(app, entityId)
+        bevyViewer?.showEntity(entityId: entityId)
     }
 
     func showAll() {
-        guard bevyApp != nil else { return }
-        // show_all(app)
-    }
-
-    func isolate(entityIds: [UInt64]) {
-        guard bevyApp != nil else { return }
-        // entityIds.withUnsafeBufferPointer { buffer in
-        //     isolate_entities(app, buffer.baseAddress, buffer.count)
-        // }
+        bevyViewer?.showAll()
     }
 
     // MARK: - Camera
 
     func cameraHome() {
-        guard bevyApp != nil else { return }
-        // camera_home(app)
+        bevyViewer?.cameraHome()
     }
 
     func cameraFitAll() {
-        guard bevyApp != nil else { return }
-        // camera_fit_all(app)
+        bevyViewer?.cameraFitAll()
     }
 
     func cameraFocus(entityId: UInt64) {
-        guard bevyApp != nil else { return }
-        // camera_focus_entity(app, entityId)
+        bevyViewer?.cameraFocusEntity(entityId: entityId)
     }
 
     // MARK: - Touch/Mouse Input
 
     func touchBegan(at point: CGPoint) {
-        guard bevyApp != nil else { return }
-        // touch_started(app, Float(point.x), Float(point.y))
+        bevyViewer?.touchStarted(x: Float(point.x), y: Float(point.y))
     }
 
     func touchMoved(to point: CGPoint) {
-        guard bevyApp != nil else { return }
-        // touch_moved(app, Float(point.x), Float(point.y))
+        bevyViewer?.touchMoved(x: Float(point.x), y: Float(point.y))
     }
 
     func touchEnded(at point: CGPoint) {
-        guard bevyApp != nil else { return }
-        // touch_ended(app, Float(point.x), Float(point.y))
+        bevyViewer?.touchEnded(x: Float(point.x), y: Float(point.y))
     }
 
     func touchCancelled(at point: CGPoint) {
-        guard bevyApp != nil else { return }
-        // touch_cancelled(app, Float(point.x), Float(point.y))
+        bevyViewer?.touchCancelled(x: Float(point.x), y: Float(point.y))
     }
 
     // MARK: - Theme
 
     func setTheme(dark: Bool) {
-        guard bevyApp != nil else { return }
-        // set_theme(app, dark)
+        bevyViewer?.setTheme(dark: dark)
     }
 }
 

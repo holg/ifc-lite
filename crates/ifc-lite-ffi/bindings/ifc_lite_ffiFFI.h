@@ -251,6 +251,106 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_CLONE_BEVYVIEWER
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_CLONE_BEVYVIEWER
+void*_Nonnull uniffi_ifc_lite_ffi_fn_clone_bevyviewer(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_FREE_BEVYVIEWER
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_FREE_BEVYVIEWER
+void uniffi_ifc_lite_ffi_fn_free_bevyviewer(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_CONSTRUCTOR_BEVYVIEWER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_CONSTRUCTOR_BEVYVIEWER_NEW
+void*_Nonnull uniffi_ifc_lite_ffi_fn_constructor_bevyviewer_new(uint64_t view_ptr, float scale_factor, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_CAMERA_FIT_ALL
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_CAMERA_FIT_ALL
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_camera_fit_all(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_CAMERA_FOCUS_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_CAMERA_FOCUS_ENTITY
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_camera_focus_entity(void*_Nonnull ptr, uint64_t entity_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_CAMERA_HOME
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_CAMERA_HOME
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_camera_home(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_CLEAR_SELECTION
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_CLEAR_SELECTION
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_clear_selection(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_ENTER_FRAME
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_ENTER_FRAME
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_enter_frame(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_HIDE_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_HIDE_ENTITY
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_hide_entity(void*_Nonnull ptr, uint64_t entity_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_LOAD_ENTITIES
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_LOAD_ENTITIES
+int8_t uniffi_ifc_lite_ffi_fn_method_bevyviewer_load_entities(void*_Nonnull ptr, RustBuffer entities_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_LOAD_GEOMETRY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_LOAD_GEOMETRY
+int8_t uniffi_ifc_lite_ffi_fn_method_bevyviewer_load_geometry(void*_Nonnull ptr, RustBuffer meshes_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_SELECT_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_SELECT_ENTITY
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_select_entity(void*_Nonnull ptr, uint64_t entity_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_SET_THEME
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_SET_THEME
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_set_theme(void*_Nonnull ptr, int8_t dark, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_SHOW_ALL
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_SHOW_ALL
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_show_all(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_SHOW_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_SHOW_ENTITY
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_show_entity(void*_Nonnull ptr, uint64_t entity_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_STOP
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_STOP
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_stop(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_TOUCH_CANCELLED
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_TOUCH_CANCELLED
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_touch_cancelled(void*_Nonnull ptr, float x, float y, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_TOUCH_ENDED
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_TOUCH_ENDED
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_touch_ended(void*_Nonnull ptr, float x, float y, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_TOUCH_MOVED
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_TOUCH_MOVED
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_touch_moved(void*_Nonnull ptr, float x, float y, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_TOUCH_STARTED
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_METHOD_BEVYVIEWER_TOUCH_STARTED
+void uniffi_ifc_lite_ffi_fn_method_bevyviewer_touch_started(void*_Nonnull ptr, float x, float y, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_CLONE_IFCSCENE
 #define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_FN_CLONE_IFCSCENE
 void*_Nonnull uniffi_ifc_lite_ffi_fn_clone_ifcscene(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
@@ -731,6 +831,108 @@ uint16_t uniffi_ifc_lite_ffi_checksum_func_init_library(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_CAMERA_FIT_ALL
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_CAMERA_FIT_ALL
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_camera_fit_all(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_CAMERA_FOCUS_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_CAMERA_FOCUS_ENTITY
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_camera_focus_entity(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_CAMERA_HOME
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_CAMERA_HOME
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_camera_home(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_CLEAR_SELECTION
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_CLEAR_SELECTION
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_clear_selection(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_ENTER_FRAME
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_ENTER_FRAME
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_enter_frame(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_HIDE_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_HIDE_ENTITY
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_hide_entity(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_LOAD_ENTITIES
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_LOAD_ENTITIES
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_load_entities(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_LOAD_GEOMETRY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_LOAD_GEOMETRY
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_load_geometry(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_SELECT_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_SELECT_ENTITY
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_select_entity(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_SET_THEME
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_SET_THEME
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_set_theme(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_SHOW_ALL
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_SHOW_ALL
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_show_all(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_SHOW_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_SHOW_ENTITY
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_show_entity(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_STOP
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_STOP
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_stop(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_TOUCH_CANCELLED
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_TOUCH_CANCELLED
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_touch_cancelled(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_TOUCH_ENDED
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_TOUCH_ENDED
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_touch_ended(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_TOUCH_MOVED
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_TOUCH_MOVED
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_touch_moved(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_TOUCH_STARTED
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_BEVYVIEWER_TOUCH_STARTED
+uint16_t uniffi_ifc_lite_ffi_checksum_method_bevyviewer_touch_started(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_IFCSCENE_ADD_TO_SELECTION
 #define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_IFCSCENE_ADD_TO_SELECTION
 uint16_t uniffi_ifc_lite_ffi_checksum_method_ifcscene_add_to_selection(void
@@ -920,6 +1122,12 @@ uint16_t uniffi_ifc_lite_ffi_checksum_method_ifcscene_show_entity(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_IFCSCENE_TOGGLE_SELECTION
 #define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_METHOD_IFCSCENE_TOGGLE_SELECTION
 uint16_t uniffi_ifc_lite_ffi_checksum_method_ifcscene_toggle_selection(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_CONSTRUCTOR_BEVYVIEWER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_IFC_LITE_FFI_CHECKSUM_CONSTRUCTOR_BEVYVIEWER_NEW
+uint16_t uniffi_ifc_lite_ffi_checksum_constructor_bevyviewer_new(void
     
 );
 #endif

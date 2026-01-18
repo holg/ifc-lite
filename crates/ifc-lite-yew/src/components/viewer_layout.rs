@@ -85,6 +85,9 @@ fn UrlLoader() -> Html {
 fn StateBridge() -> Html {
     let state = use_context::<ViewerStateContext>().expect("ViewerStateContext not found");
 
+    // Track last known selection to avoid infinite loops
+    let last_bevy_selection = use_state(std::collections::HashSet::<u64>::new);
+
     // Sync visibility state to Bevy when hidden_ids or isolated_ids change
     {
         let hidden_ids = state.hidden_ids.clone();
@@ -108,7 +111,57 @@ fn StateBridge() -> Html {
         );
     }
 
-    // Sync selection state to Bevy
+    // Poll selection from Bevy (Bevy -> Yew)
+    // Only applies when selection source is "bevy" to avoid race conditions
+    {
+        let state = state.clone();
+        let last_bevy_selection = last_bevy_selection.clone();
+
+        use_effect_with((), move |_| {
+            let interval = gloo::timers::callback::Interval::new(100, move || {
+                // Only apply selection if it came from Bevy, not from Yew
+                let source = bridge::get_selection_source();
+                if source.as_deref() != Some("bevy") {
+                    return;
+                }
+
+                if let Some(bevy_selection) = bridge::load_selection() {
+                    let bevy_ids: std::collections::HashSet<u64> =
+                        bevy_selection.selected_ids.into_iter().collect();
+
+                    // Only update if Bevy's selection differs from what we last saw
+                    if bevy_ids != *last_bevy_selection {
+                        // Check if this is different from current Yew state
+                        if bevy_ids != state.selected_ids {
+                            bridge::log(&format!(
+                                "[Yew] Bevy selection changed: {:?}",
+                                bevy_ids.iter().take(3).collect::<Vec<_>>()
+                            ));
+
+                            // Update Yew state to match Bevy
+                            if bevy_ids.is_empty() {
+                                state.dispatch(crate::state::ViewerAction::ClearSelection);
+                            } else if bevy_ids.len() == 1 {
+                                let id = *bevy_ids.iter().next().unwrap();
+                                state.dispatch(crate::state::ViewerAction::Select(id));
+                            } else {
+                                // Multi-select: clear and add each
+                                state.dispatch(crate::state::ViewerAction::ClearSelection);
+                                for id in &bevy_ids {
+                                    state.dispatch(crate::state::ViewerAction::AddToSelection(*id));
+                                }
+                            }
+                        }
+                        last_bevy_selection.set(bevy_ids);
+                    }
+                }
+            });
+
+            move || drop(interval)
+        });
+    }
+
+    // Sync selection state to Bevy (Yew -> Bevy) - only when Yew initiates the change
     {
         let selected_ids = state.selected_ids.clone();
         let hovered_id = state.hovered_id;

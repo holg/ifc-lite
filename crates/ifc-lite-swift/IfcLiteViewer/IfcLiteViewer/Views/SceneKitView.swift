@@ -278,24 +278,36 @@ struct SceneKitView: ViewRepresentable {
         }
 
         private func fitCameraToBounds(scnView: SCNView, bounds: SceneBounds) {
+            // IFC uses Z-up, SceneKit uses Y-up
+            // We rotate meshes by -90° around X, which transforms:
+            //   IFC (x, y, z) -> SceneKit (x, z, -y)
+            // So for center/size calculations:
+
             let centerX = (bounds.minX + bounds.maxX) / 2
-            let centerY = (bounds.minY + bounds.maxY) / 2
-            let centerZ = (bounds.minZ + bounds.maxZ) / 2
+            let centerY = (bounds.minZ + bounds.maxZ) / 2  // IFC Z -> SceneKit Y
+            let centerZ = -(bounds.minY + bounds.maxY) / 2 // IFC Y -> SceneKit -Z
 
             let sizeX = bounds.maxX - bounds.minX
-            let sizeY = bounds.maxY - bounds.minY
-            let sizeZ = bounds.maxZ - bounds.minZ
+            let sizeY = bounds.maxZ - bounds.minZ  // IFC Z size -> SceneKit Y size
+            let sizeZ = bounds.maxY - bounds.minY  // IFC Y size -> SceneKit Z size
             let maxSize = max(sizeX, max(sizeY, sizeZ))
 
-            let distance = maxSize * 1.5
+            // Ensure reasonable distance - at least 2x the model size
+            let distance = max(maxSize * 2.0, 10.0)
+
 
             if let cameraNode = scnView.pointOfView {
+                // Update camera clipping for large models
+                cameraNode.camera?.zNear = 0.1
+                cameraNode.camera?.zFar = Double(max(distance * 10, 10000))
+
                 SCNTransaction.begin()
                 SCNTransaction.animationDuration = 0.5
+                // Position camera looking down at ~45° angle from SE direction
                 cameraNode.position = SCNVector3(
-                    centerX + distance * 0.7,
-                    centerY + distance * 0.5,
-                    centerZ + distance * 0.7
+                    centerX + distance * 0.6,
+                    centerY + distance * 0.6,
+                    centerZ + distance * 0.6
                 )
                 cameraNode.look(at: SCNVector3(centerX, centerY, centerZ))
                 SCNTransaction.commit()

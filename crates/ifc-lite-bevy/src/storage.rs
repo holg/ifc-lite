@@ -15,6 +15,7 @@ const BINARY_MAGIC: u32 = 0x49464342; // "IFCB" in ASCII
 pub const GEOMETRY_KEY: &str = "ifc_lite_geometry";
 pub const ENTITIES_KEY: &str = "ifc_lite_entities";
 pub const SELECTION_KEY: &str = "ifc_lite_selection";
+pub const SELECTION_SOURCE_KEY: &str = "ifc_lite_selection_source";
 pub const VISIBILITY_KEY: &str = "ifc_lite_visibility";
 pub const CAMERA_KEY: &str = "ifc_lite_camera";
 pub const TIMESTAMP_KEY: &str = "ifc_lite_timestamp";
@@ -246,6 +247,7 @@ mod wasm_storage {
         if let Some(storage) = get_storage() {
             if let Ok(json) = serde_json::to_string(selection) {
                 let _ = storage.set_item(SELECTION_KEY, &json);
+                let _ = storage.set_item(SELECTION_SOURCE_KEY, "bevy");
                 update_timestamp();
             }
         }

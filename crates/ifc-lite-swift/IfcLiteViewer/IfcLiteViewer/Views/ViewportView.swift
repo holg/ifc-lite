@@ -4,6 +4,8 @@ import IfcLite
 /// Main viewport for 3D rendering
 struct ViewportView: View {
     @EnvironmentObject var viewModel: ViewerViewModel
+    /// Bevy controller passed from parent (ContentView)
+    var bevyController: BevyViewController?
 
     var body: some View {
         ZStack {
@@ -33,9 +35,14 @@ struct ViewportView: View {
                     #endif
                 }
             } else if !viewModel.meshes.isEmpty {
-                // SceneKit 3D view
-                SceneKitView()
-                    .environmentObject(viewModel)
+                // 3D view - use Bevy (default) or SceneKit (fallback)
+                if viewModel.useBevy, let controller = bevyController {
+                    BevyMetalView(controller: controller)
+                        .environmentObject(viewModel)
+                } else {
+                    SceneKitView()
+                        .environmentObject(viewModel)
+                }
             } else if viewModel.isLoading {
                 // Loading state
                 VStack(spacing: 16) {
@@ -68,6 +75,6 @@ struct CrosshairView: View {
 }
 
 #Preview {
-    ViewportView()
+    ViewportView(bevyController: nil)
         .environmentObject(ViewerViewModel())
 }
