@@ -285,17 +285,14 @@ export function useIfc() {
     fileName: string
   ): Promise<boolean> => {
     try {
-      console.time('[useIfc] cache-load');
       const cacheLoadStart = performance.now();
       setProgress({ phase: 'Loading from cache', percent: 10 });
 
       // Reset geometry first so Viewport detects this as a new file
       setGeometryResult(null);
 
-      console.time('[useIfc] cache-read');
       const reader = new BinaryCacheReader();
       const result = await reader.read(cacheResult.buffer);
-      console.timeEnd('[useIfc] cache-read');
       const cacheReadTime = performance.now() - cacheLoadStart;
 
       // Convert cache data store to viewer data store format
@@ -303,7 +300,6 @@ export function useIfc() {
 
       // Restore source buffer for on-demand property extraction
       if (cacheResult.sourceBuffer) {
-        console.time('[useIfc] rebuild-entity-index');
         dataStore.source = new Uint8Array(cacheResult.sourceBuffer);
 
         // Quick scan to rebuild entity index with byte offsets (needed for on-demand extraction)
@@ -327,7 +323,6 @@ export function useIfc() {
           typeList.push(ref.expressId);
         }
         dataStore.entityIndex = entityIndex;
-        console.timeEnd('[useIfc] rebuild-entity-index');
 
         // Rebuild on-demand maps from relationships
         const { onDemandPropertyMap, onDemandQuantityMap } = rebuildOnDemandMaps(
@@ -344,12 +339,10 @@ export function useIfc() {
 
       // Rebuild spatial hierarchy from cache data (cache doesn't serialize it)
       if (!dataStore.spatialHierarchy && dataStore.entities && dataStore.relationships) {
-        console.time('[useIfc] rebuild-spatial-hierarchy');
         dataStore.spatialHierarchy = rebuildSpatialHierarchy(
           dataStore.entities,
           dataStore.relationships
         );
-        console.timeEnd('[useIfc] rebuild-spatial-hierarchy');
       }
 
       if (result.geometry) {
@@ -386,7 +379,6 @@ export function useIfc() {
 
       setProgress({ phase: 'Complete (from cache)', percent: 100 });
       const totalCacheTime = performance.now() - cacheLoadStart;
-      console.timeEnd('[useIfc] cache-load');
       console.log(
         `[useIfc] INSTANT cache load: ${fileName} (${result.geometry?.meshes.length || 0} meshes)\n` +
         `  Cache read: ${cacheReadTime.toFixed(0)}ms\n` +
@@ -411,7 +403,6 @@ export function useIfc() {
   ): Promise<boolean> => {
     try {
       const serverStart = performance.now();
-      console.time('[useIfc] server-parse');
       setProgress({ phase: 'Connecting to server', percent: 5 });
 
       const client = new IfcServerClient({ baseUrl: SERVER_URL });
@@ -1101,7 +1092,6 @@ export function useIfc() {
       // Geometry is ready - mark complete immediately (data model loads in background)
       setProgress({ phase: 'Complete', percent: 100 });
       const totalServerTime = performance.now() - serverStart;
-      console.timeEnd('[useIfc] server-parse');
       console.log(`[useIfc] SERVER PARALLEL complete: ${file.name}`);
       console.log(`  Total time: ${totalServerTime.toFixed(0)}ms`);
       console.log(`  Breakdown: health=${(healthStart - serverStart).toFixed(0)}ms, parse=${parseTime.toFixed(0)}ms, convert=${convertTime.toFixed(0)}ms`);
@@ -1124,8 +1114,6 @@ export function useIfc() {
     fileName: string
   ): Promise<void> => {
     try {
-      console.time('[useIfc] cache-write');
-
       const writer = new BinaryCacheWriter();
 
       // Adapt dataStore to cache format
@@ -1149,7 +1137,6 @@ export function useIfc() {
 
       await setCached(cacheKey, cacheBuffer, fileName, sourceBuffer.byteLength, sourceBuffer);
 
-      console.timeEnd('[useIfc] cache-write');
       console.log(`[useIfc] Cached ${fileName} (${(cacheBuffer.byteLength / 1024 / 1024).toFixed(2)}MB cache)`);
     } catch (err) {
       console.warn('[useIfc] Failed to cache model:', err);
@@ -1369,7 +1356,6 @@ export function useIfc() {
 
       try {
         console.log(`[useIfc] Starting geometry streaming IMMEDIATELY (file size: ${fileSizeMB.toFixed(2)}MB)...`);
-        console.time('[useIfc] total-processing');
 
         // Use dynamic batch sizing for optimal throughput
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
@@ -1448,7 +1434,6 @@ export function useIfc() {
                 `  Total process (JS): ${totalProcessTime.toFixed(0)}ms\n` +
                 `  First batch at: ${batchCount > 0 ? '(see Batch #1 above)' : 'N/A'}`
               );
-              console.timeEnd('[useIfc] total-processing');
 
               finalCoordinateInfo = event.coordinateInfo;
 
@@ -1463,12 +1448,10 @@ export function useIfc() {
                 // Build spatial index from meshes (in background)
                 if (allMeshes.length > 0) {
                   const buildIndex = () => {
-                    console.time('[useIfc] spatial-index-background');
                     try {
                       const spatialIndex = buildSpatialIndex(allMeshes);
                       (dataStore as any).spatialIndex = spatialIndex;
                       setIfcDataStore({ ...dataStore });
-                      console.timeEnd('[useIfc] spatial-index-background');
                     } catch (err) {
                       console.warn('[useIfc] Failed to build spatial index:', err);
                     }
