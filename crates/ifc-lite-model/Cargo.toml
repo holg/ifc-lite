@@ -1,0 +1,16 @@
+[package]
+name = "ifc-lite-model"
+version = "0.1.0"
+edition = "2021"
+description = "Trait definitions and shared types for IFC parsing"
+license = "MPL-2.0"
+repository = "https://github.com/nicories/ifc-lite"
+keywords = ["ifc", "bim", "parser", "traits"]
+categories = ["data-structures", "parsing"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2"
+
+[features]
+default = []

@@ -32,9 +32,12 @@ impl Plugin for MeshPlugin {
         app.init_resource::<AutoFitState>()
             .init_resource::<PendingFocus>()
             .init_resource::<TriangleEntityMapping>()
+            .init_resource::<CurrentPalette>()
+            .init_resource::<EntityColorMapping>()
             .add_systems(
                 Update,
                 (
+                    poll_palette_change_system,
                     spawn_meshes_system,
                     auto_fit_camera_system,
                     update_mesh_visibility_system,
@@ -58,6 +61,40 @@ pub struct AutoFitState {
     /// Whether we've already auto-fit for this scene
     pub has_fit: bool,
 }
+
+/// Current color palette state
+#[cfg(feature = "color-palette")]
+#[derive(Resource, Default)]
+pub struct CurrentPalette {
+    pub palette: ColorPalette,
+}
+
+#[cfg(not(feature = "color-palette"))]
+#[derive(Resource, Default)]
+pub struct CurrentPalette;
+
+/// Lightweight entity info for palette switching (no geometry data)
+#[cfg(feature = "color-palette")]
+#[derive(Clone, Debug)]
+pub struct EntityColorInfo {
+    pub entity_type: String,
+    pub start_vertex: u32,
+    pub vertex_count: u32,
+}
+
+/// Maps entity color info for palette switching without keeping geometry
+#[cfg(feature = "color-palette")]
+#[derive(Resource, Default)]
+pub struct EntityColorMapping {
+    /// Opaque mesh entity mappings
+    pub opaque: Vec<EntityColorInfo>,
+    /// Transparent mesh entity mappings
+    pub transparent: Vec<EntityColorInfo>,
+}
+
+#[cfg(not(feature = "color-palette"))]
+#[derive(Resource, Default)]
+pub struct EntityColorMapping;
 
 /// Shared geometry data - uses Arc to avoid expensive cloning
 ///
@@ -84,8 +121,8 @@ impl MeshGeometry {
         }
     }
 
-    /// Create from ifc_lite_geometry::Mesh (takes ownership via conversion)
-    pub fn from_geometry_mesh(mesh: ifc_lite_geometry::Mesh) -> Self {
+    /// Create from ifc_lite_geometry_new::Mesh (takes ownership via conversion)
+    pub fn from_geometry_mesh(mesh: ifc_lite_geometry_new::Mesh) -> Self {
         Self {
             positions: mesh.positions,
             normals: mesh.normals,
@@ -203,7 +240,7 @@ impl IfcMesh {
     /// Create from geometry mesh, taking ownership (no clone)
     pub fn from_geometry_mesh(
         entity_id: u64,
-        mesh: ifc_lite_geometry::Mesh,
+        mesh: ifc_lite_geometry_new::Mesh,
         color: [f32; 4],
         entity_type: String,
         name: Option<String>,
@@ -352,6 +389,9 @@ struct BatchBuilder {
     indices: Vec<u32>,
     /// Maps triangle index -> entity_id (for picking)
     triangle_to_entity: Vec<u64>,
+    /// Lightweight entity info for palette switching (only when feature enabled)
+    #[cfg(feature = "color-palette")]
+    entity_color_info: Vec<EntityColorInfo>,
 }
 
 impl BatchBuilder {
@@ -362,6 +402,8 @@ impl BatchBuilder {
             colors: Vec::with_capacity(vertex_hint),
             indices: Vec::with_capacity(index_hint),
             triangle_to_entity: Vec::with_capacity(index_hint / 3),
+            #[cfg(feature = "color-palette")]
+            entity_color_info: Vec::new(),
         }
     }
 
@@ -422,6 +464,14 @@ impl BatchBuilder {
         for _ in 0..num_triangles {
             self.triangle_to_entity.push(ifc_mesh.entity_id);
         }
+
+        // Track lightweight entity info for palette switching (no geometry!)
+        #[cfg(feature = "color-palette")]
+        self.entity_color_info.push(EntityColorInfo {
+            entity_type: ifc_mesh.entity_type.clone(),
+            start_vertex: start_vertex as u32,
+            vertex_count: vertex_count as u32,
+        });
     }
 
     /// Get the triangle-to-entity mapping (consumes ownership)
@@ -429,12 +479,19 @@ impl BatchBuilder {
         std::mem::take(&mut self.triangle_to_entity)
     }
 
+    /// Get the entity color info (consumes ownership)
+    #[cfg(feature = "color-palette")]
+    fn take_color_info(&mut self) -> Vec<EntityColorInfo> {
+        std::mem::take(&mut self.entity_color_info)
+    }
+
     /// Build final Bevy mesh
     fn build(self) -> Mesh {
-        let mut mesh = Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::default(),
-        );
+        // Always use MAIN_WORLD | RENDER_WORLD to allow picking to access vertex positions
+        // The picking system needs to read positions for ray-mesh intersection
+        let usage = RenderAssetUsages::default(); // MAIN_WORLD | RENDER_WORLD
+
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage);
 
         // Recompute normals if we didn't have proper ones
         let normals = if self.normals.iter().all(|n| n[1] == 1.0 && n[0] == 0.0) {
@@ -464,6 +521,21 @@ impl BatchBuilder {
     }
 }
 
+/// Get current time in milliseconds (WASM)
+#[cfg(target_arch = "wasm32")]
+fn now_ms() -> f64 {
+    js_sys::Date::now()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn now_ms() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0)
+}
+
 /// System to spawn batched meshes when scene data changes
 fn spawn_meshes_system(
     mut commands: Commands,
@@ -471,6 +543,7 @@ fn spawn_meshes_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut scene_data: ResMut<IfcSceneData>,
     mut triangle_mapping: ResMut<TriangleEntityMapping>,
+    color_mapping: ResMut<EntityColorMapping>,
     existing_entities: Query<Entity, With<IfcEntity>>,
     existing_batches: Query<Entity, With<BatchedMesh>>,
 ) {
@@ -478,12 +551,19 @@ fn spawn_meshes_system(
         return;
     }
 
+    let batch_start = now_ms();
     let mesh_count = scene_data.meshes.len();
-    log(&format!("[Bevy] Batching {} meshes for GPU", mesh_count));
+    crate::log_info(&format!("[Bevy] Batching {} meshes for GPU...", mesh_count));
 
-    // Clear previous triangle mapping
+    // Clear previous mappings
     triangle_mapping.opaque.clear();
     triangle_mapping.transparent.clear();
+    #[cfg(feature = "color-palette")]
+    {
+        color_mapping.opaque.clear();
+        color_mapping.transparent.clear();
+    }
+    let _ = &color_mapping; // Silence unused warning when feature disabled
 
     // Despawn existing entities and batches
     for entity in existing_entities.iter() {
@@ -557,8 +637,12 @@ fn spawn_meshes_system(
             opaque_batch.triangle_count()
         ));
 
-        // Store triangle-to-entity mapping for picking
+        // Store mappings for picking
         triangle_mapping.opaque = opaque_batch.take_triangle_mapping();
+        #[cfg(feature = "color-palette")]
+        {
+            color_mapping.opaque = opaque_batch.take_color_info();
+        }
 
         let mesh = opaque_batch.build();
         let material = StandardMaterial {
@@ -590,8 +674,12 @@ fn spawn_meshes_system(
             transparent_batch.triangle_count()
         ));
 
-        // Store triangle-to-entity mapping for picking
+        // Store mappings for picking
         triangle_mapping.transparent = transparent_batch.take_triangle_mapping();
+        #[cfg(feature = "color-palette")]
+        {
+            color_mapping.transparent = transparent_batch.take_color_info();
+        }
 
         let mesh = transparent_batch.build();
         let material = StandardMaterial {
@@ -627,9 +715,36 @@ fn spawn_meshes_system(
         ));
     }
 
+    // Calculate totals for logging
+    let total_vertices = scene_data.meshes.iter().map(|m| m.geometry.vertex_count()).sum::<usize>();
+    let total_triangles = scene_data.meshes.iter().map(|m| m.geometry.triangle_count()).sum::<usize>();
+    let geometry_size: usize = scene_data
+        .meshes
+        .iter()
+        .map(|m| {
+            m.geometry.positions.len() * 4
+                + m.geometry.normals.len() * 4
+                + m.geometry.indices.len() * 4
+        })
+        .sum();
+
+    let batch_time = now_ms() - batch_start;
+    crate::log_info(&format!(
+        "[Bevy] ✓ GPU upload: {:.0}ms | {} vertices, {} triangles | {:.1} MB geometry",
+        batch_time,
+        total_vertices,
+        total_triangles,
+        geometry_size as f64 / (1024.0 * 1024.0)
+    ));
+
+    // FREE MEMORY: Clear heavy geometry data now that it's on GPU
+    for mesh in &mut scene_data.meshes {
+        mesh.geometry = Arc::new(MeshGeometry::default());
+    }
+
     log(&format!(
-        "[Bevy] Batching complete: {} meshes -> 2 draw calls",
-        mesh_count
+        "[Bevy] Freed {}MB of geometry data from IfcSceneData",
+        geometry_size / (1024 * 1024)
     ));
 
     scene_data.dirty = false;
@@ -747,74 +862,334 @@ fn poll_focus_command_system(
     }
 }
 
-/// Get default color for IFC entity type
+/// System to poll for palette change commands from Yew
+#[cfg(feature = "color-palette")]
+#[allow(unused_variables, unused_mut)]
+fn poll_palette_change_system(
+    mut current_palette: ResMut<CurrentPalette>,
+    color_mapping: Res<EntityColorMapping>,
+    mut mesh_assets: ResMut<Assets<Mesh>>,
+    batched_meshes: Query<(&Mesh3d, &BatchedMesh)>,
+) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(palette_str) = crate::storage::load_palette() {
+            // Clear the command so we don't process it again
+            crate::storage::clear_palette();
+
+            // Parse palette string
+            let new_palette = match palette_str.as_str() {
+                "vibrant" => ColorPalette::Vibrant,
+                "realistic" => ColorPalette::Realistic,
+                "high_contrast" => ColorPalette::HighContrast,
+                "monochrome" => ColorPalette::Monochrome,
+                _ => {
+                    log(&format!("[Bevy] Unknown palette: {}", palette_str));
+                    return;
+                }
+            };
+
+            // Only update if palette changed
+            if current_palette.palette != new_palette {
+                log(&format!(
+                    "[Bevy] Palette changed to {:?}, updating vertex colors in-place",
+                    new_palette
+                ));
+
+                current_palette.palette = new_palette;
+
+                // Update vertex colors directly in GPU meshes (no geometry rebuild!)
+                for (mesh_handle, batched) in batched_meshes.iter() {
+                    let mapping = if batched.is_transparent {
+                        &color_mapping.transparent
+                    } else {
+                        &color_mapping.opaque
+                    };
+
+                    if let Some(mesh) = mesh_assets.get_mut(&mesh_handle.0) {
+                        // Get mutable access to vertex colors
+                        if let Some(bevy::mesh::VertexAttributeValues::Float32x4(colors)) =
+                            mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR)
+                        {
+                            // Update colors based on entity mapping
+                            for info in mapping {
+                                let new_color = get_color_for_palette(&info.entity_type, new_palette);
+                                let start = info.start_vertex as usize;
+                                let end = start + info.vertex_count as usize;
+                                for i in start..end.min(colors.len()) {
+                                    colors[i] = new_color;
+                                }
+                            }
+                            log(&format!(
+                                "[Bevy] Updated {} entity colors in {} batch",
+                                mapping.len(),
+                                if batched.is_transparent { "transparent" } else { "opaque" }
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// No-op system when color-palette feature is disabled
+#[cfg(not(feature = "color-palette"))]
+fn poll_palette_change_system() {
+    // Color palette switching disabled - no entity color info stored
+}
+
+/// Color palette for IFC visualization
+#[cfg(feature = "color-palette")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ColorPalette {
+    /// Vibrant - saturated, vivid colors (default)
+    #[default]
+    Vibrant,
+    /// Realistic - muted architectural colors
+    Realistic,
+    /// High Contrast - bold colors for visibility
+    HighContrast,
+    /// Monochrome - grayscale for technical views
+    Monochrome,
+}
+
+#[cfg(feature = "color-palette")]
+impl ColorPalette {
+    /// Get all available palettes
+    pub fn all() -> &'static [ColorPalette] {
+        &[
+            ColorPalette::Vibrant,
+            ColorPalette::Realistic,
+            ColorPalette::HighContrast,
+            ColorPalette::Monochrome,
+        ]
+    }
+
+    /// Get palette name for display
+    pub fn name(&self) -> &'static str {
+        match self {
+            ColorPalette::Vibrant => "Vibrant",
+            ColorPalette::Realistic => "Realistic",
+            ColorPalette::HighContrast => "High Contrast",
+            ColorPalette::Monochrome => "Monochrome",
+        }
+    }
+}
+
+/// Get color for IFC entity type using the specified palette
+#[cfg(feature = "color-palette")]
+pub fn get_color_for_palette(entity_type: &str, palette: ColorPalette) -> [f32; 4] {
+    match palette {
+        ColorPalette::Vibrant => get_vibrant_color(entity_type),
+        ColorPalette::Realistic => get_realistic_color(entity_type),
+        ColorPalette::HighContrast => get_high_contrast_color(entity_type),
+        ColorPalette::Monochrome => get_monochrome_color(entity_type),
+    }
+}
+
+/// Get default color for IFC entity type (uses Vibrant palette)
 pub fn get_default_color(entity_type: &str) -> [f32; 4] {
-    // Convert to uppercase for case-insensitive matching
+    get_vibrant_color(entity_type)
+}
+
+/// Vibrant color palette - saturated, vivid colors
+fn get_vibrant_color(entity_type: &str) -> [f32; 4] {
     let upper = entity_type.to_uppercase();
 
     if upper.contains("WALL") {
-        // Walls - warm beige/cream
-        [0.92, 0.85, 0.75, 1.0]
+        [0.95, 0.90, 0.80, 1.0] // Warm cream
     } else if upper.contains("SLAB") {
-        // Slabs/floors - concrete gray
-        [0.75, 0.73, 0.70, 1.0]
+        [0.85, 0.82, 0.78, 1.0] // Light concrete
     } else if upper.contains("ROOF") {
-        // Roofs - terracotta/reddish
-        [0.72, 0.55, 0.45, 1.0]
+        [0.85, 0.45, 0.35, 1.0] // Terracotta red
     } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
-        // Structural elements - steel blue-gray
-        [0.60, 0.65, 0.72, 1.0]
+        [0.45, 0.55, 0.75, 1.0] // Steel blue
     } else if upper.contains("DOOR") {
-        // Doors - rich wood brown
-        [0.55, 0.35, 0.20, 1.0]
+        [0.65, 0.40, 0.25, 1.0] // Rich wood brown
     } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
-        // Windows/curtain walls - blue glass (semi-transparent)
-        [0.5, 0.7, 0.85, 0.35]
+        [0.4, 0.7, 0.9, 0.4] // Sky blue glass
     } else if upper.contains("STAIR") || upper.contains("RAMP") {
-        // Stairs/ramps - warm gray
-        [0.65, 0.62, 0.58, 1.0]
+        [0.75, 0.70, 0.65, 1.0] // Warm stone
     } else if upper.contains("RAILING") {
-        // Railings - dark metallic
-        [0.35, 0.35, 0.38, 1.0]
+        [0.30, 0.30, 0.35, 1.0] // Dark metal
     } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
-        // Furniture - warm wood
-        [0.65, 0.45, 0.28, 1.0]
+        [0.70, 0.50, 0.30, 1.0] // Warm wood
     } else if upper.contains("SPACE") {
-        // Space - very light blue, semi-transparent
-        [0.8, 0.85, 0.95, 0.12]
+        [0.7, 0.85, 0.95, 0.15] // Light blue space
     } else if upper.contains("PLATE") {
-        // Plates - steel
-        [0.68, 0.70, 0.75, 1.0]
+        [0.70, 0.72, 0.78, 1.0] // Steel plate
     } else if upper.contains("COVERING") {
-        // Coverings - light warm gray
-        [0.82, 0.80, 0.76, 1.0]
+        [0.88, 0.85, 0.80, 1.0] // Light finish
     } else if upper.contains("FOOTING") || upper.contains("PILE") {
-        // Foundations - dark concrete
-        [0.55, 0.53, 0.50, 1.0]
+        [0.60, 0.58, 0.55, 1.0] // Dark concrete
     } else if upper.contains("PROXY") {
-        // Building element proxies - purple tint
-        [0.70, 0.65, 0.75, 1.0]
+        [0.75, 0.60, 0.80, 1.0] // Purple accent
     } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
-        // MEP flow elements - green tint
-        [0.55, 0.70, 0.58, 1.0]
+        [0.40, 0.75, 0.50, 1.0] // Green MEP
     } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
-        // Electrical/energy elements - yellow tint
-        [0.75, 0.72, 0.45, 1.0]
+        [0.90, 0.80, 0.30, 1.0] // Yellow electrical
     } else if upper.contains("SANITARY") || upper.contains("FIRE") {
-        // Plumbing fixtures - white ceramic
-        [0.92, 0.92, 0.95, 1.0]
+        [0.95, 0.95, 0.98, 1.0] // White ceramic
     } else if upper.contains("SHADING") {
-        // Shading devices - dark blue-gray
-        [0.45, 0.48, 0.55, 0.8]
+        [0.40, 0.45, 0.55, 0.85] // Blue-gray shade
     } else if upper.contains("TRANSPORT") {
-        // Transport elements (elevators, etc) - dark gray
-        [0.40, 0.40, 0.42, 1.0]
+        [0.45, 0.45, 0.50, 1.0] // Dark gray
     } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
-        // Geographic/virtual - light green, semi-transparent
-        [0.75, 0.85, 0.75, 0.25]
+        [0.65, 0.85, 0.65, 0.3] // Light green
     } else {
-        // Default - neutral warm gray
-        [0.75, 0.72, 0.70, 1.0]
+        [0.80, 0.78, 0.75, 1.0] // Neutral gray
+    }
+}
+
+/// Realistic color palette - muted architectural colors
+#[cfg(feature = "color-palette")]
+fn get_realistic_color(entity_type: &str) -> [f32; 4] {
+    let upper = entity_type.to_uppercase();
+
+    if upper.contains("WALL") {
+        [0.92, 0.85, 0.75, 1.0] // Warm beige
+    } else if upper.contains("SLAB") {
+        [0.75, 0.73, 0.70, 1.0] // Concrete gray
+    } else if upper.contains("ROOF") {
+        [0.72, 0.55, 0.45, 1.0] // Terracotta
+    } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
+        [0.60, 0.65, 0.72, 1.0] // Steel blue-gray
+    } else if upper.contains("DOOR") {
+        [0.55, 0.35, 0.20, 1.0] // Wood brown
+    } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
+        [0.5, 0.7, 0.85, 0.35] // Blue glass
+    } else if upper.contains("STAIR") || upper.contains("RAMP") {
+        [0.65, 0.62, 0.58, 1.0] // Warm gray
+    } else if upper.contains("RAILING") {
+        [0.35, 0.35, 0.38, 1.0] // Dark metallic
+    } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
+        [0.65, 0.45, 0.28, 1.0] // Warm wood
+    } else if upper.contains("SPACE") {
+        [0.8, 0.85, 0.95, 0.12] // Light blue
+    } else if upper.contains("PLATE") {
+        [0.68, 0.70, 0.75, 1.0] // Steel
+    } else if upper.contains("COVERING") {
+        [0.82, 0.80, 0.76, 1.0] // Light warm gray
+    } else if upper.contains("FOOTING") || upper.contains("PILE") {
+        [0.55, 0.53, 0.50, 1.0] // Dark concrete
+    } else if upper.contains("PROXY") {
+        [0.70, 0.65, 0.75, 1.0] // Purple tint
+    } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
+        [0.55, 0.70, 0.58, 1.0] // Green tint
+    } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
+        [0.75, 0.72, 0.45, 1.0] // Yellow tint
+    } else if upper.contains("SANITARY") || upper.contains("FIRE") {
+        [0.92, 0.92, 0.95, 1.0] // White ceramic
+    } else if upper.contains("SHADING") {
+        [0.45, 0.48, 0.55, 0.8] // Dark blue-gray
+    } else if upper.contains("TRANSPORT") {
+        [0.40, 0.40, 0.42, 1.0] // Dark gray
+    } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
+        [0.75, 0.85, 0.75, 0.25] // Light green
+    } else {
+        [0.75, 0.72, 0.70, 1.0] // Neutral warm gray
+    }
+}
+
+/// High contrast color palette - bold colors for visibility
+#[cfg(feature = "color-palette")]
+fn get_high_contrast_color(entity_type: &str) -> [f32; 4] {
+    let upper = entity_type.to_uppercase();
+
+    if upper.contains("WALL") {
+        [1.0, 0.95, 0.85, 1.0] // Bright cream
+    } else if upper.contains("SLAB") {
+        [0.7, 0.7, 0.7, 1.0] // Medium gray
+    } else if upper.contains("ROOF") {
+        [0.9, 0.3, 0.2, 1.0] // Bright red
+    } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
+        [0.2, 0.4, 0.8, 1.0] // Bright blue
+    } else if upper.contains("DOOR") {
+        [0.6, 0.3, 0.1, 1.0] // Dark brown
+    } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
+        [0.3, 0.7, 1.0, 0.5] // Bright cyan glass
+    } else if upper.contains("STAIR") || upper.contains("RAMP") {
+        [0.9, 0.7, 0.5, 1.0] // Orange-tan
+    } else if upper.contains("RAILING") {
+        [0.2, 0.2, 0.2, 1.0] // Near black
+    } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
+        [0.8, 0.5, 0.2, 1.0] // Bright orange
+    } else if upper.contains("SPACE") {
+        [0.6, 0.8, 1.0, 0.2] // Light cyan
+    } else if upper.contains("PLATE") {
+        [0.5, 0.5, 0.6, 1.0] // Blue-gray
+    } else if upper.contains("COVERING") {
+        [0.95, 0.9, 0.85, 1.0] // Off-white
+    } else if upper.contains("FOOTING") || upper.contains("PILE") {
+        [0.4, 0.4, 0.35, 1.0] // Dark brown-gray
+    } else if upper.contains("PROXY") {
+        [0.8, 0.4, 0.9, 1.0] // Bright purple
+    } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
+        [0.2, 0.9, 0.4, 1.0] // Bright green
+    } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
+        [1.0, 0.9, 0.2, 1.0] // Bright yellow
+    } else if upper.contains("SANITARY") || upper.contains("FIRE") {
+        [1.0, 1.0, 1.0, 1.0] // Pure white
+    } else if upper.contains("SHADING") {
+        [0.3, 0.35, 0.5, 0.9] // Dark blue
+    } else if upper.contains("TRANSPORT") {
+        [0.3, 0.3, 0.3, 1.0] // Dark gray
+    } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
+        [0.5, 1.0, 0.5, 0.35] // Bright green
+    } else {
+        [0.85, 0.85, 0.85, 1.0] // Light gray
+    }
+}
+
+/// Monochrome color palette - grayscale for technical views
+#[cfg(feature = "color-palette")]
+fn get_monochrome_color(entity_type: &str) -> [f32; 4] {
+    let upper = entity_type.to_uppercase();
+
+    // Use different gray levels based on element type for visual hierarchy
+    if upper.contains("WALL") {
+        [0.85, 0.85, 0.85, 1.0] // Light gray
+    } else if upper.contains("SLAB") {
+        [0.70, 0.70, 0.70, 1.0] // Medium gray
+    } else if upper.contains("ROOF") {
+        [0.60, 0.60, 0.60, 1.0] // Medium-dark gray
+    } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
+        [0.50, 0.50, 0.50, 1.0] // Mid gray
+    } else if upper.contains("DOOR") {
+        [0.40, 0.40, 0.40, 1.0] // Dark gray
+    } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
+        [0.75, 0.75, 0.75, 0.4] // Transparent light gray
+    } else if upper.contains("STAIR") || upper.contains("RAMP") {
+        [0.65, 0.65, 0.65, 1.0] // Medium-light gray
+    } else if upper.contains("RAILING") {
+        [0.30, 0.30, 0.30, 1.0] // Very dark gray
+    } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
+        [0.55, 0.55, 0.55, 1.0] // Medium gray
+    } else if upper.contains("SPACE") {
+        [0.90, 0.90, 0.90, 0.15] // Very light gray, transparent
+    } else if upper.contains("PLATE") {
+        [0.60, 0.60, 0.60, 1.0] // Medium-dark gray
+    } else if upper.contains("COVERING") {
+        [0.80, 0.80, 0.80, 1.0] // Light gray
+    } else if upper.contains("FOOTING") || upper.contains("PILE") {
+        [0.45, 0.45, 0.45, 1.0] // Dark gray
+    } else if upper.contains("PROXY") {
+        [0.70, 0.70, 0.70, 1.0] // Medium gray
+    } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
+        [0.55, 0.55, 0.55, 1.0] // Medium gray
+    } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
+        [0.65, 0.65, 0.65, 1.0] // Medium-light gray
+    } else if upper.contains("SANITARY") || upper.contains("FIRE") {
+        [0.95, 0.95, 0.95, 1.0] // Near white
+    } else if upper.contains("SHADING") {
+        [0.35, 0.35, 0.35, 0.85] // Dark gray, slightly transparent
+    } else if upper.contains("TRANSPORT") {
+        [0.40, 0.40, 0.40, 1.0] // Dark gray
+    } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
+        [0.85, 0.85, 0.85, 0.25] // Light gray, transparent
+    } else {
+        [0.75, 0.75, 0.75, 1.0] // Default gray
     }
 }
 

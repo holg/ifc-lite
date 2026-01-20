@@ -35,6 +35,13 @@ pub fn PropertiesPanel() -> Html {
                         </div>
                     }
 
+                    if let Some(ref description) = entity.description {
+                        <div class="property-row">
+                            <span class="property-label">{"Description"}</span>
+                            <span class="property-value">{description}</span>
+                        </div>
+                    }
+
                     if let Some(ref global_id) = entity.global_id {
                         <div class="property-row">
                             <span class="property-label">{"GlobalId"}</span>

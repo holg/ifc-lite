@@ -1,0 +1,69 @@
+[package]
+name = "ifc-lite-unified"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Unified IFC-Lite viewer - Yew UI + Bevy 3D in single WASM"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Yew UI components
+ifc-lite-yew = { path = "../ifc-lite-yew" }
+
+# Bevy renderer (without external-ui, we'll integrate directly)
+ifc-lite-bevy = { path = "../ifc-lite-bevy", default-features = false }
+
+# IFC parsing (trait-based)
+ifc-lite-model = { path = "../ifc-lite-model" }
+ifc-lite-parser = { path = "../ifc-lite-parser" }
+ifc-lite-geometry-new = { path = "../ifc-lite-geometry" }
+
+# Yew framework
+yew = { version = "0.22", features = ["csr"] }
+
+# Bevy (matching ifc-lite-bevy's version)
+bevy = { version = "0.18", default-features = false, features = [
+    "bevy_asset",
+    "bevy_winit",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_state",
+    "bevy_gizmos",
+    "bevy_picking",
+    "webgpu",
+    "tonemapping_luts",
+    "png",
+    "zstd_rust",
+] }
+
+# WASM
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlCanvasElement",
+    "Window",
+] }
+
+# Shared state
+once_cell = "1.19"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+log = "0.4"

@@ -41,29 +41,104 @@ pub const SELECTION_SOURCE_KEY: &str = "ifc_lite_selection_source";
 pub const SECTION_KEY: &str = "ifc_lite_section";
 pub const FOCUS_KEY: &str = "ifc_lite_focus";
 pub const CAMERA_CMD_KEY: &str = "ifc_lite_camera_cmd";
+pub const PALETTE_KEY: &str = "ifc_lite_palette";
 
-// JavaScript FFI functions
+// JavaScript FFI functions (used in split mode when Bevy is separate WASM)
 #[wasm_bindgen]
 extern "C" {
     /// Load the Bevy viewer module
     #[wasm_bindgen(js_name = loadBevyViewer, catch)]
-    pub async fn load_bevy_viewer() -> Result<(), JsValue>;
+    async fn js_load_bevy_viewer() -> Result<(), JsValue>;
 
     /// Check if Bevy is loaded
     #[wasm_bindgen(js_name = isBevyLoaded)]
-    pub fn is_bevy_loaded() -> bool;
+    fn js_is_bevy_loaded() -> bool;
 
     /// Check if Bevy is currently loading
     #[wasm_bindgen(js_name = isBevyLoading)]
-    pub fn is_bevy_loading() -> bool;
+    fn js_is_bevy_loading() -> bool;
 
     /// Set geometry data via JS bridge (binary format)
     #[wasm_bindgen(js_name = setIfcGeometryBinary)]
-    pub fn set_ifc_geometry_binary(data: &Uint8Array);
+    fn js_set_ifc_geometry_binary(data: &Uint8Array);
+
+    /// Append geometry data to existing (for streaming)
+    #[wasm_bindgen(js_name = appendIfcGeometryBinary)]
+    fn js_append_ifc_geometry_binary(data: &Uint8Array);
+
+    /// Signal that geometry streaming is complete
+    #[wasm_bindgen(js_name = finalizeIfcGeometry)]
+    fn js_finalize_ifc_geometry();
 
     /// Set entity data via JS bridge
     #[wasm_bindgen(js_name = setIfcEntities)]
-    pub fn set_ifc_entities(json: &str);
+    fn js_set_ifc_entities(json: &str);
+
+    /// Check if unified mode (Bevy in same WASM) - defined in index.html
+    #[wasm_bindgen(js_name = isUnifiedMode)]
+    fn js_is_unified_mode() -> bool;
+
+    /// Start Bevy in unified mode
+    #[wasm_bindgen(js_name = startBevyUnified)]
+    fn js_start_bevy_unified(canvas: &str);
+}
+
+/// Check if running in unified mode (Bevy in same WASM)
+pub fn is_unified_mode() -> bool {
+    // Check if the JS function exists - if not, we're in split mode
+    js_sys::Reflect::get(&js_sys::global(), &"isUnifiedMode".into())
+        .map(|v| v.is_function())
+        .unwrap_or(false)
+        && js_is_unified_mode()
+}
+
+/// Load Bevy viewer - works in both unified and split mode
+pub async fn load_bevy_viewer() -> Result<(), JsValue> {
+    if is_unified_mode() {
+        // In unified mode, Bevy is already loaded - just start it
+        log_info("[Yew] Unified mode - starting Bevy on #bevy-canvas");
+        js_start_bevy_unified("#bevy-canvas");
+        log_info("[Yew] Bevy start call returned");
+        Ok(())
+    } else {
+        // Split mode - load separate WASM
+        js_load_bevy_viewer().await
+    }
+}
+
+/// Check if Bevy is loaded
+pub fn is_bevy_loaded() -> bool {
+    // Always use the JS function - it tracks whether Bevy has actually started
+    js_is_bevy_loaded()
+}
+
+/// Check if Bevy is loading
+pub fn is_bevy_loading() -> bool {
+    if is_unified_mode() {
+        false
+    } else {
+        js_is_bevy_loading()
+    }
+}
+
+/// Set geometry binary
+pub fn set_ifc_geometry_binary(data: &Uint8Array) {
+    js_set_ifc_geometry_binary(data);
+}
+
+/// Append geometry binary
+pub fn append_ifc_geometry_binary(data: &Uint8Array) {
+    js_append_ifc_geometry_binary(data);
+}
+
+/// Finalize geometry
+pub fn finalize_ifc_geometry() {
+    js_finalize_ifc_geometry();
+}
+
+/// Set entities JSON
+pub fn set_ifc_entities(json: &str) {
+    js_set_ifc_entities(json);
 }
 
 /// Get localStorage
@@ -98,8 +173,28 @@ pub struct EntityData {
     pub id: u64,
     pub entity_type: String,
     pub name: Option<String>,
+    /// Description attribute (index 3) - often more human-readable than Name
+    pub description: Option<String>,
+    pub global_id: Option<String>,
     pub storey: Option<String>,
     pub storey_elevation: Option<f32>,
+}
+
+impl EntityData {
+    /// Get display label for tree view: prefer description, then name, then type#id
+    pub fn display_label(&self) -> String {
+        if let Some(ref desc) = self.description {
+            if !desc.is_empty() && desc != "$" {
+                return desc.clone();
+            }
+        }
+        if let Some(ref name) = self.name {
+            if !name.is_empty() && name != "$" {
+                return name.clone();
+            }
+        }
+        format!("#{}", self.id)
+    }
 }
 
 /// Selection state for storage
@@ -204,33 +299,23 @@ fn serialize_geometry_binary(geometry: &[GeometryData]) -> Vec<u8> {
         // entity_id
         buf.extend_from_slice(&mesh.entity_id.to_le_bytes());
 
-        // positions
+        // positions - bulk copy using bytemuck
         buf.extend_from_slice(&(mesh.positions.len() as u32).to_le_bytes());
-        for &p in &mesh.positions {
-            buf.extend_from_slice(&p.to_le_bytes());
-        }
+        buf.extend_from_slice(bytemuck::cast_slice(&mesh.positions));
 
-        // normals
+        // normals - bulk copy
         buf.extend_from_slice(&(mesh.normals.len() as u32).to_le_bytes());
-        for &n in &mesh.normals {
-            buf.extend_from_slice(&n.to_le_bytes());
-        }
+        buf.extend_from_slice(bytemuck::cast_slice(&mesh.normals));
 
-        // indices
+        // indices - bulk copy
         buf.extend_from_slice(&(mesh.indices.len() as u32).to_le_bytes());
-        for &i in &mesh.indices {
-            buf.extend_from_slice(&i.to_le_bytes());
-        }
+        buf.extend_from_slice(bytemuck::cast_slice(&mesh.indices));
 
-        // color
-        for &c in &mesh.color {
-            buf.extend_from_slice(&c.to_le_bytes());
-        }
+        // color - bulk copy
+        buf.extend_from_slice(bytemuck::cast_slice(&mesh.color));
 
-        // transform
-        for &t in &mesh.transform {
-            buf.extend_from_slice(&t.to_le_bytes());
-        }
+        // transform - bulk copy
+        buf.extend_from_slice(bytemuck::cast_slice(&mesh.transform));
 
         // entity_type
         let type_bytes = mesh.entity_type.as_bytes();
@@ -250,27 +335,86 @@ fn serialize_geometry_binary(geometry: &[GeometryData]) -> Vec<u8> {
     buf
 }
 
-/// Save geometry data for Bevy (uses binary format via JS bridge)
-pub fn save_geometry(geometry: &[GeometryData]) {
-    let binary = serialize_geometry_binary(geometry);
-    log(&format!(
-        "[Yew] Geometry binary size: {} bytes ({} meshes)",
-        binary.len(),
-        geometry.len()
-    ));
+/// Save geometry data for Bevy
+/// In unified mode: direct memory transfer (no serialization!)
+/// In split mode: binary serialization via JS bridge
+pub fn save_geometry(geometry: Vec<GeometryData>) {
+    let start = js_sys::Date::now();
+    let mesh_count = geometry.len();
 
-    // Create Uint8Array and copy data
-    let array = Uint8Array::new_with_length(binary.len() as u32);
-    array.copy_from(&binary);
+    #[cfg(feature = "unified")]
+    {
+        // UNIFIED MODE: Direct memory transfer - no serialization!
+        // Convert GeometryData -> IfcMesh and pass directly
+        use ifc_lite_bevy::{IfcMesh, MeshGeometry};
+        use std::sync::Arc;
 
-    set_ifc_geometry_binary(&array);
-    log("[Yew] Geometry sent via JS bridge (binary)");
+        let meshes: Vec<IfcMesh> = geometry
+            .into_iter()
+            .map(|g| IfcMesh {
+                entity_id: g.entity_id,
+                geometry: Arc::new(MeshGeometry::new(g.positions, g.normals, g.indices)),
+                color: g.color,
+                transform: g.transform,
+                entity_type: g.entity_type,
+                name: g.name,
+            })
+            .collect();
+
+        // Store in global for Bevy to pick up
+        ifc_lite_bevy::set_pending_meshes(meshes);
+
+        let total_time = js_sys::Date::now() - start;
+        log_info(&format!(
+            "[Yew] Geometry direct transfer: {} meshes in {:.0}ms (no serialization!)",
+            mesh_count, total_time
+        ));
+    }
+
+    #[cfg(not(feature = "unified"))]
+    {
+        // SPLIT MODE: Binary serialization via JS bridge
+        let serialize_start = js_sys::Date::now();
+        let binary = serialize_geometry_binary(&geometry);
+        let serialize_time = js_sys::Date::now() - serialize_start;
+        let size = binary.len();
+
+        log_info(&format!(
+            "[Yew] Geometry serialized: {} bytes ({} meshes) in {:.0}ms",
+            size, mesh_count, serialize_time
+        ));
+
+        // Create Uint8Array and copy data
+        let copy_start = js_sys::Date::now();
+        let array = Uint8Array::new_with_length(size as u32);
+        array.copy_from(&binary);
+        let copy_time = js_sys::Date::now() - copy_start;
+
+        // Send to JS bridge
+        let bridge_start = js_sys::Date::now();
+        set_ifc_geometry_binary(&array);
+        let bridge_time = js_sys::Date::now() - bridge_start;
+
+        let total_time = js_sys::Date::now() - start;
+        log_info(&format!(
+            "[Yew] Geometry bridge: {:.0}ms total (serialize: {:.0}ms, copy: {:.0}ms, bridge: {:.0}ms) | {:.1} MB",
+            total_time, serialize_time, copy_time, bridge_time,
+            size as f64 / (1024.0 * 1024.0)
+        ));
+    }
 }
 
 /// Save entity data for Bevy (uses JS bridge)
 pub fn save_entities(entities: &[EntityData]) {
+    let start = js_sys::Date::now();
     if let Ok(json) = serde_json::to_string(entities) {
+        let serialize_time = js_sys::Date::now() - start;
         set_ifc_entities(&json);
+        let total_time = js_sys::Date::now() - start;
+        log_info(&format!(
+            "[Yew] Entities bridge: {:.0}ms total (serialize: {:.0}ms) | {} entities, {:.1} KB JSON",
+            total_time, serialize_time, entities.len(), json.len() as f64 / 1024.0
+        ));
     }
 }
 
@@ -378,4 +522,19 @@ pub fn log_warn(msg: &str) {
 /// Log info that should always be shown (e.g., load complete)
 pub fn log_info(msg: &str) {
     web_sys::console::info_1(&msg.into());
+}
+
+/// Save palette command for Bevy (to recolor meshes)
+pub fn save_palette(palette: crate::state::ColorPalette) {
+    if let Some(storage) = get_storage() {
+        // Send palette name as string for Bevy to interpret
+        let palette_str = match palette {
+            crate::state::ColorPalette::Vibrant => "vibrant",
+            crate::state::ColorPalette::Realistic => "realistic",
+            crate::state::ColorPalette::HighContrast => "high_contrast",
+            crate::state::ColorPalette::Monochrome => "monochrome",
+        };
+        let _ = storage.set_item(PALETTE_KEY, palette_str);
+        update_timestamp();
+    }
 }

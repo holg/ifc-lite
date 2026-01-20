@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "Bevy-based 3D viewer for IFC models with WebGPU/WebGL2 rendering"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [lib]
 name = "ifc_lite_bevy"
 path = "src/lib.rs"
@@ -17,18 +20,22 @@ name = "ifc-viewer"
 path = "src/main.rs"
 
 [features]
-default = ["external-ui"]
-# Use pure Bevy UI (works on web and native) - WIP, waiting for Bevy 0.19
+default = ["bevy-ui"]
+# Use pure Bevy UI (works on web and native) - unified single-WASM approach
 bevy-ui = []
 # Use external UI (Yew for web, SwiftUI for Apple) - 3D viewport only
+# Note: external-ui requires running Yew separately, not recommended for web
 external-ui = []
 webgl2 = []
 native-view = [] # Enable embedded native view support (iOS/macOS)
+# Enable color palette switching (stores entity type info for each vertex range)
+color-palette = []
 
 [dependencies]
-# Core IFC parsing and geometry
-ifc-lite-core = { path = "../../rust/core" }
-ifc-lite-geometry = { path = "../../rust/geometry" }
+# Core IFC parsing and geometry (trait-based architecture)
+ifc-lite-model = { path = "../ifc-lite-model" }
+ifc-lite-parser = { path = "../ifc-lite-parser" }
+ifc-lite-geometry-new = { path = "../ifc-lite-geometry" }
 
 # Math library (same as ifc-lite-geometry)
 nalgebra = { version = "0.33", default-features = false, features = ["std"] }
@@ -44,6 +51,9 @@ serde_json = "1.0"
 # Fast hashing
 rustc-hash = "1.1"
 
+# Zero-copy byte casting
+bytemuck = { version = "1.14", features = ["derive"] }
+
 # Window handles for native embedding
 raw-window-handle = "0.6"
 
@@ -51,6 +61,7 @@ raw-window-handle = "0.6"
 uuid = { version = "1.0", features = ["v4"] }
 
 # Bevy 3D engine - common features (viewport only, no UI)
+# Note: bevy_ui and bevy_text are always included for now since the UI is needed
 bevy = { version = "0.18", default-features = false, features = [
     "bevy_asset",
     "bevy_winit",
@@ -60,6 +71,9 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_gizmos",
     "bevy_picking",
+    "bevy_ui",
+    "bevy_text",
+    "default_font",
     "tonemapping_luts",
     "png",
     "zstd_rust",
@@ -76,6 +90,9 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_gizmos",
     "bevy_picking",
+    "bevy_ui",
+    "bevy_text",
+    "default_font",
     "multi_threaded",
     "tonemapping_luts",
     "png",
@@ -97,6 +114,9 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_gizmos",
     "bevy_picking",
+    "bevy_ui",
+    "bevy_text",
+    "default_font",
     "webgpu",
     "tonemapping_luts",
     "png",
@@ -104,14 +124,23 @@ bevy = { version = "0.18", default-features = false, features = [
 ] }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
-js-sys = "0.3"
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = [
-    "Window",
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+web-sys = { workspace = true, features = [
+    "console",
+    "Document",
+    "Element",
+    "Event",
+    "EventTarget",
+    "File",
+    "FileList",
+    "FileReader",
+    "HtmlElement",
+    "HtmlInputElement",
     "Location",
     "Storage",
-    "console",
+    "Window",
 ] }
 
 # iOS dependencies
@@ -125,6 +154,9 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_gizmos",
     "bevy_picking",
+    "bevy_ui",
+    "bevy_text",
+    "default_font",
     "tonemapping_luts",
     "png",
     "zstd_rust",
@@ -143,6 +175,9 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_gizmos",
     "bevy_picking",
+    "bevy_ui",
+    "bevy_text",
+    "default_font",
     "multi_threaded",
     "tonemapping_luts",
     "png",

@@ -1,32 +1,33 @@
-//! localStorage bridge for Bevy-Yew communication
+//! Storage types and localStorage bridge
 //!
-//! This module handles data transfer between Yew UI and Bevy renderer
-//! using localStorage as an intermediary (proven pattern from gldf-rs).
-//! Geometry data uses binary format for efficiency.
+//! In unified mode (bevy-ui): No external JS bridge needed, files loaded directly
+//! In external-ui mode: Uses localStorage/JS bridge to communicate with Yew
 
-use crate::{EntityInfo, IfcMesh};
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_arch = "wasm32")]
-use crate::mesh::MeshGeometry;
+use wasm_bindgen::prelude::*;
+
+// JavaScript FFI to get geometry from JS bridge (set by Yew)
 #[cfg(target_arch = "wasm32")]
-use std::sync::Arc;
+#[wasm_bindgen]
+extern "C" {
+    /// Get timestamp from JS bridge
+    #[wasm_bindgen(js_name = getIfcTimestamp)]
+    fn js_get_ifc_timestamp() -> Option<String>;
 
-/// Binary format header magic number
-#[allow(dead_code)]
-const BINARY_MAGIC: u32 = 0x49464342; // "IFCB" in ASCII
+    /// Get geometry binary from JS bridge
+    #[wasm_bindgen(js_name = getIfcGeometryBinary)]
+    fn js_get_ifc_geometry_binary() -> Option<js_sys::Uint8Array>;
 
-/// Storage keys for localStorage
-pub const GEOMETRY_KEY: &str = "ifc_lite_geometry";
-pub const ENTITIES_KEY: &str = "ifc_lite_entities";
-pub const SELECTION_KEY: &str = "ifc_lite_selection";
-pub const SELECTION_SOURCE_KEY: &str = "ifc_lite_selection_source";
-pub const VISIBILITY_KEY: &str = "ifc_lite_visibility";
-pub const CAMERA_KEY: &str = "ifc_lite_camera";
-pub const TIMESTAMP_KEY: &str = "ifc_lite_timestamp";
-pub const SECTION_KEY: &str = "ifc_lite_section";
-pub const FOCUS_KEY: &str = "ifc_lite_focus";
-pub const CAMERA_CMD_KEY: &str = "ifc_lite_camera_cmd";
+    /// Get entities JSON from JS bridge
+    #[wasm_bindgen(js_name = getIfcEntities)]
+    fn js_get_ifc_entities() -> Option<String>;
+
+    /// Clear geometry from JS bridge to free memory
+    #[wasm_bindgen(js_name = clearIfcGeometryBridge)]
+    fn js_clear_ifc_geometry_bridge();
+}
 
 /// Selection state for storage
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -85,291 +86,360 @@ pub struct CameraCommandStorage {
 }
 
 // ============================================================================
-// WASM Storage Functions
+// JS Bridge functions - used in unified Yew+Bevy mode
 // ============================================================================
 
+/// Get timestamp from JS bridge
 #[cfg(target_arch = "wasm32")]
-mod wasm_storage {
-    use super::*;
-    use js_sys::Uint8Array;
-    use wasm_bindgen::prelude::*;
+pub fn get_timestamp() -> Option<String> {
+    js_get_ifc_timestamp()
+}
 
-    #[wasm_bindgen]
-    extern "C" {
-        #[wasm_bindgen(js_name = getIfcGeometryBinary)]
-        fn get_ifc_geometry_binary() -> Option<Uint8Array>;
+#[cfg(not(target_arch = "wasm32"))]
+pub fn get_timestamp() -> Option<String> {
+    None
+}
 
-        #[wasm_bindgen(js_name = getIfcEntities)]
-        fn get_ifc_entities() -> Option<String>;
+/// Binary format magic number (must match bridge.rs)
+const BINARY_MAGIC: u32 = 0x49464342; // "IFCB"
 
-        #[wasm_bindgen(js_name = getIfcTimestamp)]
-        fn get_ifc_timestamp() -> String;
+/// Read f32 values from unaligned byte slice
+#[cfg(target_arch = "wasm32")]
+fn read_f32_vec(data: &[u8], offset: &mut usize, count: usize) -> Option<Vec<f32>> {
+    let bytes_needed = count * 4;
+    if *offset + bytes_needed > data.len() {
+        return None;
+    }
+    let mut result = Vec::with_capacity(count);
+    for _ in 0..count {
+        let bytes: [u8; 4] = data[*offset..*offset + 4].try_into().ok()?;
+        result.push(f32::from_le_bytes(bytes));
+        *offset += 4;
+    }
+    Some(result)
+}
+
+/// Read u32 values from unaligned byte slice
+#[cfg(target_arch = "wasm32")]
+fn read_u32_vec(data: &[u8], offset: &mut usize, count: usize) -> Option<Vec<u32>> {
+    let bytes_needed = count * 4;
+    if *offset + bytes_needed > data.len() {
+        return None;
+    }
+    let mut result = Vec::with_capacity(count);
+    for _ in 0..count {
+        let bytes: [u8; 4] = data[*offset..*offset + 4].try_into().ok()?;
+        result.push(u32::from_le_bytes(bytes));
+        *offset += 4;
+    }
+    Some(result)
+}
+
+/// Deserialize geometry from binary format
+#[cfg(target_arch = "wasm32")]
+fn deserialize_geometry_binary(data: &[u8]) -> Option<Vec<crate::IfcMesh>> {
+    use crate::mesh::MeshGeometry;
+    use std::sync::Arc;
+
+    if data.len() < 12 {
+        return None;
     }
 
-    fn get_storage() -> Option<web_sys::Storage> {
-        web_sys::window()?.local_storage().ok()?
+    let mut offset = 0;
+
+    // Read header
+    let magic = u32::from_le_bytes(data[offset..offset + 4].try_into().ok()?);
+    offset += 4;
+    if magic != BINARY_MAGIC {
+        web_sys::console::error_1(&format!("[Bevy] Invalid geometry magic: {:08x}", magic).into());
+        return None;
     }
 
-    pub fn get_timestamp() -> Option<String> {
-        let ts = get_ifc_timestamp();
-        if ts.is_empty() {
-            None
+    let _version = u32::from_le_bytes(data[offset..offset + 4].try_into().ok()?);
+    offset += 4;
+
+    let mesh_count = u32::from_le_bytes(data[offset..offset + 4].try_into().ok()?) as usize;
+    offset += 4;
+
+    let mut meshes = Vec::with_capacity(mesh_count);
+
+    for _ in 0..mesh_count {
+        if offset + 8 > data.len() {
+            break;
+        }
+
+        // entity_id
+        let entity_id = u64::from_le_bytes(data[offset..offset + 8].try_into().ok()?);
+        offset += 8;
+
+        // positions
+        let positions_len = u32::from_le_bytes(data[offset..offset + 4].try_into().ok()?) as usize;
+        offset += 4;
+        if offset + positions_len * 4 > data.len() {
+            break;
+        }
+        let positions = read_f32_vec(data, &mut offset, positions_len)?;
+
+        // normals
+        let normals_len = u32::from_le_bytes(data[offset..offset + 4].try_into().ok()?) as usize;
+        offset += 4;
+        if offset + normals_len * 4 > data.len() {
+            break;
+        }
+        let normals = read_f32_vec(data, &mut offset, normals_len)?;
+
+        // indices
+        let indices_len = u32::from_le_bytes(data[offset..offset + 4].try_into().ok()?) as usize;
+        offset += 4;
+        if offset + indices_len * 4 > data.len() {
+            break;
+        }
+        let indices = read_u32_vec(data, &mut offset, indices_len)?;
+
+        // color (4 floats)
+        if offset + 16 > data.len() {
+            break;
+        }
+        let color_vec = read_f32_vec(data, &mut offset, 4)?;
+        let color: [f32; 4] = [color_vec[0], color_vec[1], color_vec[2], color_vec[3]];
+
+        // transform (16 floats)
+        if offset + 64 > data.len() {
+            break;
+        }
+        let transform_vec = read_f32_vec(data, &mut offset, 16)?;
+        let transform: [f32; 16] = transform_vec.try_into().ok()?;
+
+        // entity_type
+        if offset >= data.len() {
+            break;
+        }
+        let type_len = data[offset] as usize;
+        offset += 1;
+        if offset + type_len > data.len() {
+            break;
+        }
+        let entity_type = String::from_utf8_lossy(&data[offset..offset + type_len]).to_string();
+        offset += type_len;
+
+        // name
+        if offset >= data.len() {
+            break;
+        }
+        let name_len = data[offset] as usize;
+        offset += 1;
+        let name = if name_len > 0 && offset + name_len <= data.len() {
+            let n = String::from_utf8_lossy(&data[offset..offset + name_len]).to_string();
+            offset += name_len;
+            Some(n)
         } else {
-            Some(ts)
-        }
-    }
-
-    /// Deserialize geometry from binary format
-    fn deserialize_geometry_binary(data: &[u8]) -> Option<Vec<IfcMesh>> {
-        let mut cursor = 0;
-
-        // Helper to read bytes
-        macro_rules! read_bytes {
-            ($n:expr) => {{
-                if cursor + $n > data.len() {
-                    crate::log("[Bevy] Binary data truncated");
-                    return None;
-                }
-                let slice = &data[cursor..cursor + $n];
-                cursor += $n;
-                slice
-            }};
-        }
-
-        // Read header
-        let magic = u32::from_le_bytes(read_bytes!(4).try_into().ok()?);
-        if magic != BINARY_MAGIC {
-            crate::log(&format!("[Bevy] Invalid magic: {:08x}", magic));
-            return None;
-        }
-
-        let version = u32::from_le_bytes(read_bytes!(4).try_into().ok()?);
-        if version != 1 {
-            crate::log(&format!("[Bevy] Unsupported version: {}", version));
-            return None;
-        }
-
-        let mesh_count = u32::from_le_bytes(read_bytes!(4).try_into().ok()?) as usize;
-        crate::log(&format!("[Bevy] Parsing {} meshes from binary", mesh_count));
-
-        let mut meshes = Vec::with_capacity(mesh_count);
-
-        for _ in 0..mesh_count {
-            // entity_id
-            let entity_id = u64::from_le_bytes(read_bytes!(8).try_into().ok()?);
-
-            // positions
-            let positions_len = u32::from_le_bytes(read_bytes!(4).try_into().ok()?) as usize;
-            let mut positions = Vec::with_capacity(positions_len);
-            for _ in 0..positions_len {
-                positions.push(f32::from_le_bytes(read_bytes!(4).try_into().ok()?));
-            }
-
-            // normals
-            let normals_len = u32::from_le_bytes(read_bytes!(4).try_into().ok()?) as usize;
-            let mut normals = Vec::with_capacity(normals_len);
-            for _ in 0..normals_len {
-                normals.push(f32::from_le_bytes(read_bytes!(4).try_into().ok()?));
-            }
-
-            // indices
-            let indices_len = u32::from_le_bytes(read_bytes!(4).try_into().ok()?) as usize;
-            let mut indices = Vec::with_capacity(indices_len);
-            for _ in 0..indices_len {
-                indices.push(u32::from_le_bytes(read_bytes!(4).try_into().ok()?));
-            }
-
-            // color
-            let mut color = [0.0f32; 4];
-            for c in &mut color {
-                *c = f32::from_le_bytes(read_bytes!(4).try_into().ok()?);
-            }
-
-            // transform
-            let mut transform = [0.0f32; 16];
-            for t in &mut transform {
-                *t = f32::from_le_bytes(read_bytes!(4).try_into().ok()?);
-            }
-
-            // entity_type
-            let type_len = read_bytes!(1)[0] as usize;
-            let entity_type = String::from_utf8_lossy(read_bytes!(type_len)).to_string();
-
-            // name
-            let name_len = read_bytes!(1)[0] as usize;
-            let name = if name_len > 0 {
-                Some(String::from_utf8_lossy(read_bytes!(name_len)).to_string())
-            } else {
-                None
-            };
-
-            meshes.push(IfcMesh {
-                entity_id,
-                geometry: Arc::new(MeshGeometry::new(positions, normals, indices)),
-                color,
-                transform,
-                entity_type,
-                name,
-            });
-        }
-
-        Some(meshes)
-    }
-
-    pub fn load_geometry() -> Option<Vec<IfcMesh>> {
-        let array = match get_ifc_geometry_binary() {
-            Some(a) if a.length() > 0 => a,
-            _ => {
-                crate::log("[Bevy] No geometry in JS bridge");
-                return None;
-            }
+            None
         };
 
-        crate::log(&format!(
-            "[Bevy] Geometry binary size: {} bytes",
-            array.length()
-        ));
-
-        // Copy to Vec<u8>
-        let data = array.to_vec();
-        deserialize_geometry_binary(&data)
+        meshes.push(crate::IfcMesh {
+            entity_id,
+            geometry: Arc::new(MeshGeometry {
+                positions,
+                normals,
+                indices,
+            }),
+            color,
+            transform,
+            entity_type,
+            name,
+        });
     }
 
-    pub fn load_entities() -> Option<Vec<EntityInfo>> {
-        let json = get_ifc_entities()?;
-        serde_json::from_str(&json).ok()
-    }
-
-    pub fn load_selection() -> Option<SelectionStorage> {
-        let storage = get_storage()?;
-        let json = storage.get_item(SELECTION_KEY).ok()??;
-        serde_json::from_str(&json).ok()
-    }
-
-    pub fn save_selection(selection: &SelectionStorage) {
-        if let Some(storage) = get_storage() {
-            if let Ok(json) = serde_json::to_string(selection) {
-                let _ = storage.set_item(SELECTION_KEY, &json);
-                let _ = storage.set_item(SELECTION_SOURCE_KEY, "bevy");
-                update_timestamp();
-            }
-        }
-    }
-
-    pub fn load_visibility() -> Option<VisibilityStorage> {
-        let storage = get_storage()?;
-        let json = storage.get_item(VISIBILITY_KEY).ok()??;
-        serde_json::from_str(&json).ok()
-    }
-
-    pub fn load_camera() -> Option<CameraStorage> {
-        let storage = get_storage()?;
-        let json = storage.get_item(CAMERA_KEY).ok()??;
-        serde_json::from_str(&json).ok()
-    }
-
-    pub fn save_camera(camera: &CameraStorage) {
-        if let Some(storage) = get_storage() {
-            if let Ok(json) = serde_json::to_string(camera) {
-                let _ = storage.set_item(CAMERA_KEY, &json);
-                // Don't update timestamp for camera - too frequent
-            }
-        }
-    }
-
-    pub fn load_section() -> Option<SectionStorage> {
-        let storage = get_storage()?;
-        let json = storage.get_item(SECTION_KEY).ok()??;
-        serde_json::from_str(&json).ok()
-    }
-
-    pub fn load_focus() -> Option<FocusStorage> {
-        let storage = get_storage()?;
-        let json = storage.get_item(FOCUS_KEY).ok()??;
-        serde_json::from_str(&json).ok()
-    }
-
-    pub fn clear_focus() {
-        if let Some(storage) = get_storage() {
-            let _ = storage.remove_item(FOCUS_KEY);
-        }
-    }
-
-    pub fn load_camera_cmd() -> Option<CameraCommandStorage> {
-        let storage = get_storage()?;
-        let json = storage.get_item(CAMERA_CMD_KEY).ok()??;
-        serde_json::from_str(&json).ok()
-    }
-
-    pub fn clear_camera_cmd() {
-        if let Some(storage) = get_storage() {
-            let _ = storage.remove_item(CAMERA_CMD_KEY);
-        }
-    }
-
-    fn update_timestamp() {
-        if let Some(storage) = get_storage() {
-            let ts = js_sys::Date::now().to_string();
-            let _ = storage.set_item(TIMESTAMP_KEY, &ts);
-        }
-    }
+    Some(meshes)
 }
 
+/// Load geometry from JS bridge
 #[cfg(target_arch = "wasm32")]
-pub use wasm_storage::*;
-
-// ============================================================================
-// Native (no-op) Storage Functions
-// ============================================================================
-
-#[cfg(not(target_arch = "wasm32"))]
-mod native_storage {
-    use super::*;
-
-    pub fn get_timestamp() -> Option<String> {
-        None
-    }
-
-    pub fn load_geometry() -> Option<Vec<IfcMesh>> {
-        None
-    }
-
-    pub fn load_entities() -> Option<Vec<EntityInfo>> {
-        None
-    }
-
-    pub fn load_selection() -> Option<SelectionStorage> {
-        None
-    }
-
-    pub fn save_selection(_selection: &SelectionStorage) {}
-
-    pub fn load_visibility() -> Option<VisibilityStorage> {
-        None
-    }
-
-    pub fn load_camera() -> Option<CameraStorage> {
-        None
-    }
-
-    pub fn save_camera(_camera: &CameraStorage) {}
-
-    pub fn load_section() -> Option<SectionStorage> {
-        None
-    }
-
-    pub fn load_focus() -> Option<FocusStorage> {
-        None
-    }
-
-    pub fn clear_focus() {}
-
-    pub fn load_camera_cmd() -> Option<CameraCommandStorage> {
-        None
-    }
-
-    pub fn clear_camera_cmd() {}
+pub fn load_geometry() -> Option<Vec<crate::IfcMesh>> {
+    let uint8_array = js_get_ifc_geometry_binary()?;
+    let data = uint8_array.to_vec();
+    web_sys::console::log_1(&format!("[Bevy] Loading geometry from JS bridge: {} bytes", data.len()).into());
+    let meshes = deserialize_geometry_binary(&data)?;
+    web_sys::console::log_1(&format!("[Bevy] Deserialized {} meshes", meshes.len()).into());
+    // Clear the JS bridge to free memory
+    js_clear_ifc_geometry_bridge();
+    Some(meshes)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native_storage::*;
+pub fn load_geometry() -> Option<Vec<crate::IfcMesh>> {
+    None
+}
+
+/// Load entities from JS bridge
+#[cfg(target_arch = "wasm32")]
+pub fn load_entities() -> Option<Vec<crate::EntityInfo>> {
+    let json = js_get_ifc_entities()?;
+    serde_json::from_str(&json).ok()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_entities() -> Option<Vec<crate::EntityInfo>> {
+    None
+}
+
+/// Load selection from localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn load_selection() -> Option<SelectionStorage> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    let json = storage.get_item("ifc_lite_selection").ok()??;
+    serde_json::from_str(&json).ok()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_selection() -> Option<SelectionStorage> {
+    None
+}
+
+/// Save selection to localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn save_selection(selection: &SelectionStorage) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            if let Ok(json) = serde_json::to_string(selection) {
+                let _ = storage.set_item("ifc_lite_selection", &json);
+                // Mark source as "bevy" so Yew knows to pick up this change
+                let _ = storage.set_item("ifc_lite_selection_source", "bevy");
+            }
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_selection(_selection: &SelectionStorage) {}
+
+/// Load visibility from localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn load_visibility() -> Option<VisibilityStorage> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    let json = storage.get_item("ifc_lite_visibility").ok()??;
+    serde_json::from_str(&json).ok()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_visibility() -> Option<VisibilityStorage> {
+    None
+}
+
+/// Load camera from localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn load_camera() -> Option<CameraStorage> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    let json = storage.get_item("ifc_lite_camera").ok()??;
+    serde_json::from_str(&json).ok()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_camera() -> Option<CameraStorage> {
+    None
+}
+
+/// Save camera to localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn save_camera(camera: &CameraStorage) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            if let Ok(json) = serde_json::to_string(camera) {
+                let _ = storage.set_item("ifc_lite_camera", &json);
+            }
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_camera(_camera: &CameraStorage) {}
+
+/// Load section plane from localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn load_section() -> Option<SectionStorage> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    let json = storage.get_item("ifc_lite_section").ok()??;
+    serde_json::from_str(&json).ok()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_section() -> Option<SectionStorage> {
+    None
+}
+
+/// Load focus command from localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn load_focus() -> Option<FocusStorage> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    let json = storage.get_item("ifc_lite_focus").ok()??;
+    serde_json::from_str(&json).ok()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_focus() -> Option<FocusStorage> {
+    None
+}
+
+/// Clear focus command
+#[cfg(target_arch = "wasm32")]
+pub fn clear_focus() {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let _ = storage.remove_item("ifc_lite_focus");
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn clear_focus() {}
+
+/// Load camera command from localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn load_camera_cmd() -> Option<CameraCommandStorage> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    let json = storage.get_item("ifc_lite_camera_cmd").ok()??;
+    serde_json::from_str(&json).ok()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_camera_cmd() -> Option<CameraCommandStorage> {
+    None
+}
+
+/// Clear camera command
+#[cfg(target_arch = "wasm32")]
+pub fn clear_camera_cmd() {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let _ = storage.remove_item("ifc_lite_camera_cmd");
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn clear_camera_cmd() {}
+
+/// Load palette from localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn load_palette() -> Option<String> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    storage.get_item("ifc_lite_palette").ok()?
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_palette() -> Option<String> {
+    None
+}
+
+/// Clear palette
+#[cfg(target_arch = "wasm32")]
+pub fn clear_palette() {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let _ = storage.remove_item("ifc_lite_palette");
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn clear_palette() {}

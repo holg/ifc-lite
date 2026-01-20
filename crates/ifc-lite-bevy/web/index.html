@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IFC-Lite Viewer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; }
+        #bevy-canvas { width: 100%; height: 100%; display: block; }
+        #loading {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #1a1a1a; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            z-index: 1000;
+        }
+        #loading.hidden { display: none; }
+        .spinner {
+            width: 40px; height: 40px; border: 3px solid #333;
+            border-top-color: #4a9eff; border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { font-size: 14px; color: #888; }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading IFC-Lite Viewer...</div>
+    </div>
+    <canvas id="bevy-canvas"></canvas>
+    <script type="module">
+        import init, { run_on_canvas } from './pkg/ifc_lite_bevy.js';
+        async function start() {
+            try {
+                await init();
+                document.getElementById('loading').classList.add('hidden');
+                run_on_canvas('#bevy-canvas');
+            } catch (e) {
+                console.error('Failed to load:', e);
+                document.querySelector('.loading-text').textContent = 'Failed: ' + e.message;
+            }
+        }
+        start();
+    </script>
+</body>
+</html>

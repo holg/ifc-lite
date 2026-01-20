@@ -28,9 +28,35 @@ use bevy::prelude::*;
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 /// Global debug mode flag (set from URL parameter ?debug=1)
 static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
+
+/// Pending meshes for unified mode (Yew -> Bevy direct transfer)
+/// This avoids serialization overhead when running in same WASM
+static PENDING_MESHES: Mutex<Option<Vec<IfcMesh>>> = Mutex::new(None);
+
+/// Set pending meshes from Yew (unified mode only)
+/// This is called by Yew after parsing geometry, Bevy polls this
+pub fn set_pending_meshes(meshes: Vec<IfcMesh>) {
+    let count = meshes.len();
+    let mut guard = PENDING_MESHES.lock().unwrap();
+    *guard = Some(meshes);
+    log(&format!("[Bevy] Pending meshes set: {} meshes", count));
+}
+
+/// Take pending meshes (consumes them)
+pub fn take_pending_meshes() -> Option<Vec<IfcMesh>> {
+    let mut guard = PENDING_MESHES.lock().unwrap();
+    guard.take()
+}
+
+/// Check if pending meshes are available
+pub fn has_pending_meshes() -> bool {
+    let guard = PENDING_MESHES.lock().unwrap();
+    guard.is_some()
+}
 
 /// Check if debug mode is enabled
 pub fn is_debug() -> bool {
@@ -62,7 +88,7 @@ fn init_debug_from_url() {
 
 // Re-exports
 pub use camera::{CameraController, CameraMode, CameraPlugin};
-pub use loader::{LoadIfcFileEvent, LoaderPlugin, OpenFileDialogRequest};
+pub use loader::{LoadIfcContentEvent, LoadIfcFileEvent, LoaderPlugin, OpenFileDialogRequest};
 pub use mesh::{AutoFitState, IfcEntity, IfcMesh, IfcMeshSerialized, MeshGeometry, MeshPlugin};
 pub use picking::{PickingPlugin, SelectionState};
 pub use section::{SectionPlane, SectionPlanePlugin};
@@ -201,7 +227,8 @@ impl Theme {
 #[derive(Resource, Default)]
 pub struct IfcTimestamp(pub String);
 
-/// System to poll localStorage for scene changes (WASM)
+/// System to poll for scene changes
+/// Checks both direct memory (unified mode) and JS bridge (split mode)
 #[allow(unused_variables, unused_mut)]
 pub fn poll_scene_changes(
     mut scene_data: ResMut<IfcSceneData>,
@@ -209,6 +236,32 @@ pub fn poll_scene_changes(
     mut last_timestamp: ResMut<IfcTimestamp>,
     mut auto_fit: ResMut<mesh::AutoFitState>,
 ) {
+    // UNIFIED MODE: Check for direct memory transfer first (no serialization!)
+    if let Some(meshes) = take_pending_meshes() {
+        log_info(&format!(
+            "[Bevy] Direct mesh transfer: {} meshes (no deserialization!)",
+            meshes.len()
+        ));
+
+        // Build EntityInfo from meshes
+        scene_data.entities = meshes
+            .iter()
+            .map(|m| EntityInfo {
+                id: m.entity_id,
+                entity_type: m.entity_type.clone(),
+                name: m.name.clone(),
+                storey: None,
+                storey_elevation: None,
+            })
+            .collect();
+
+        scene_data.meshes = meshes;
+        scene_data.dirty = true;
+        auto_fit.has_fit = false;
+        return; // Skip JS bridge check
+    }
+
+    // SPLIT MODE: Fall back to JS bridge polling
     #[cfg(target_arch = "wasm32")]
     {
         if let Some(new_timestamp) = storage::get_timestamp() {
@@ -218,19 +271,25 @@ pub fn poll_scene_changes(
                     last_timestamp.0, new_timestamp
                 ));
 
-                // Load geometry from storage
+                // Load geometry from storage (binary deserialization)
                 if let Some(geometry) = storage::load_geometry() {
-                    log(&format!("[Bevy] Loaded {} meshes", geometry.len()));
+                    log(&format!("[Bevy] Loaded {} meshes from JS bridge", geometry.len()));
+
+                    // Build EntityInfo directly from meshes
+                    scene_data.entities = geometry
+                        .iter()
+                        .map(|m| EntityInfo {
+                            id: m.entity_id,
+                            entity_type: m.entity_type.clone(),
+                            name: m.name.clone(),
+                            storey: None,
+                            storey_elevation: None,
+                        })
+                        .collect();
+
                     scene_data.meshes = geometry;
                     scene_data.dirty = true;
-                    // Reset auto-fit state to trigger camera fit for new scene
                     auto_fit.has_fit = false;
-                }
-
-                // Load entities from storage
-                if let Some(entities) = storage::load_entities() {
-                    log(&format!("[Bevy] Loaded {} entities", entities.len()));
-                    scene_data.entities = entities;
                 }
 
                 // Load selection state
@@ -278,30 +337,20 @@ pub fn log_info(msg: &str) {
 }
 
 /// Run the viewer on a canvas element (WASM)
+///
+/// This is the unified single-WASM viewer. It starts with an empty scene
+/// and the user can load IFC files using:
+/// - The "Open" button in the toolbar (Bevy UI mode)
+/// - Drag and drop onto the canvas
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn run_on_canvas(canvas_selector: &str) {
     console_error_panic_hook::set_once();
     init_debug_from_url();
-    log(&format!("[Bevy] Starting on canvas: {}", canvas_selector));
+    log_info(&format!("[Bevy] Starting unified viewer on canvas: {}", canvas_selector));
 
-    // Load initial data from localStorage
-    let meshes = storage::load_geometry().unwrap_or_default();
-    let entities = storage::load_entities().unwrap_or_default();
-
-    log(&format!(
-        "[Bevy] Initial load - {} meshes, {} entities",
-        meshes.len(),
-        entities.len()
-    ));
-
-    let scene_data = IfcSceneData {
-        meshes,
-        entities,
-        bounds: None,
-        timestamp: 0,
-        dirty: true,
-    };
+    // Start with empty scene - user will load files via UI or drag-and-drop
+    let scene_data = IfcSceneData::default();
 
     let mut app = App::new();
 
@@ -360,5 +409,45 @@ pub fn run_native() {
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn wasm_start() {
     log("[Bevy] wasm_start called");
+    run_native();
+}
+
+/// Run Bevy with pre-loaded scene data (for unified Yew+Bevy mode)
+/// This allows Yew to parse IFC and pass data directly without JS bridge
+#[cfg(target_arch = "wasm32")]
+pub fn run_with_data(canvas_selector: &str, scene_data: IfcSceneData) {
+    console_error_panic_hook::set_once();
+    init_debug_from_url();
+    log_info(&format!(
+        "[Bevy] Starting with data: {} meshes, {} entities",
+        scene_data.meshes.len(),
+        scene_data.entities.len()
+    ));
+
+    let mut app = App::new();
+
+    // Insert scene data directly - no localStorage polling needed
+    app.insert_resource(scene_data);
+    app.insert_resource(ViewerSettings::default());
+    app.insert_resource(IfcTimestamp::default());
+
+    // Add plugins
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "IFC-Lite Viewer".to_string(),
+            canvas: Some(canvas_selector.to_string()),
+            fit_canvas_to_parent: true,
+            prevent_default_event_handling: false,
+            ..default()
+        }),
+        ..default()
+    }));
+
+    app.add_plugins(IfcViewerPlugin);
+    app.run();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_with_data(_canvas_selector: &str, _scene_data: IfcSceneData) {
     run_native();
 }

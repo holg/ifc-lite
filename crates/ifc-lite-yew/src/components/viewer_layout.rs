@@ -180,7 +180,7 @@ fn StateBridge() -> Html {
 }
 
 /// Main viewer layout properties
-#[derive(Properties, PartialEq)]
+#[derive(Properties, PartialEq, Default)]
 pub struct ViewerLayoutProps {
     #[prop_or_default]
     pub class: Classes,

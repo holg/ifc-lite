@@ -11,10 +11,18 @@ description = "Yew-based UI components for IFC-Lite viewer"
 name = "ifc_lite_yew"
 path = "src/lib.rs"
 
+[features]
+default = []
+# Enable unified mode - direct memory sharing with Bevy (no serialization)
+unified = ["ifc-lite-bevy"]
+
 [dependencies]
 # Core IFC parsing
 ifc-lite-core = { path = "../../rust/core", features = ["serde"] }
 ifc-lite-geometry = { path = "../../rust/geometry" }
+
+# Bevy types for unified mode (optional - only for direct memory sharing)
+ifc-lite-bevy = { path = "../ifc-lite-bevy", optional = true, default-features = false }
 
 # Yew framework
 yew = { version = "0.22", features = ["csr"] }
@@ -38,6 +46,9 @@ log = "0.4"
 
 # Base64 for binary data
 base64 = "0.22"
+
+# Zero-copy byte casting
+bytemuck = { version = "1.14", features = ["derive"] }
 
 # For deriving PartialEq on state
 derive_more = { version = "1.0", features = ["full"] }

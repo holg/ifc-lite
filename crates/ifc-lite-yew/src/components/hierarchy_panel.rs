@@ -528,7 +528,7 @@ pub fn HierarchyPanel() -> Html {
                                         {crate::utils::get_entity_icon(&entity.entity_type)}
                                     </span>
                                     <span class="entity-name">
-                                        {entity.name.as_deref().unwrap_or(&entity.entity_type)}
+                                        {entity.display_label()}
                                     </span>
                                 </div>
                             }

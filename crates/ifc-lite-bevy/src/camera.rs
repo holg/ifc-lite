@@ -118,7 +118,7 @@ impl Default for CameraController {
             walk_speed: 500.0, // 0.5m per frame for walking in mm-scale
             orbit_sensitivity: 0.005,
             pan_sensitivity: 0.01,
-            zoom_sensitivity: 0.1,
+            zoom_sensitivity: 0.02,
             is_dragging: false,
             last_mouse_pos: Vec2::ZERO,
             drag_start_pos: Vec2::ZERO,

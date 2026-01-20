@@ -2,7 +2,8 @@
 
 use crate::bridge::{self, EntityData, GeometryData};
 use crate::state::{
-    Progress, PropertySet, PropertyValue, QuantityValue, Tool, ViewerAction, ViewerStateContext,
+    ColorPalette, Progress, PropertySet, PropertyValue, QuantityValue, Tool, ViewerAction,
+    ViewerStateContext,
 };
 use gloo_file::callbacks::FileReader;
 use ifc_lite_core::DecodedEntity;
@@ -27,6 +28,9 @@ pub fn Toolbar() -> Html {
 
     // File reader state for async file loading
     let file_reader = use_state(|| None::<FileReader>);
+
+    // Color palette tracking disabled - enable color-palette feature in Bevy to use
+    let _prev_palette = use_state(|| state.color_palette); // Keep to avoid unused warning
 
     // Handle file selection
     let on_file_change = {
@@ -257,6 +261,20 @@ pub fn Toolbar() -> Html {
 
             // Right side controls
             <div class="toolbar-group">
+                // Color palette selector - disabled for now (enable color-palette feature in Bevy to use)
+                // <button
+                //     class="tool-btn palette-btn"
+                //     onclick={
+                //         let state = state.clone();
+                //         Callback::from(move |_| {
+                //             state.dispatch(ViewerAction::CycleColorPalette);
+                //         })
+                //     }
+                //     title={format!("Color Palette: {} (click to cycle)", state.color_palette.name())}
+                // >
+                //     {"🎨"}
+                //     <span class="palette-indicator">{state.color_palette.name()}</span>
+                // </button>
                 <button
                     class="tool-btn"
                     onclick={
@@ -498,6 +516,11 @@ fn format_property_value(val: &ifc_lite_core::AttributeValue) -> String {
     }
 }
 
+/// Get current time in milliseconds (for performance timing)
+fn now_ms() -> f64 {
+    js_sys::Date::now()
+}
+
 /// Parse IFC content and send geometry to Bevy via localStorage
 pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Result<(), String> {
     use crate::state::{SpatialNode, SpatialNodeType};
@@ -505,11 +528,21 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
     use ifc_lite_geometry::GeometryRouter;
     use std::collections::HashMap;
 
-    bridge::log("Starting IFC parsing...");
+    let load_start = now_ms();
+    bridge::log_info(&format!(
+        "[IFC-Lite] Starting load, file size: {:.2} MB",
+        content.len() as f64 / (1024.0 * 1024.0)
+    ));
 
     // Build entity index for O(1) lookups
+    let index_start = now_ms();
     let index = build_entity_index(content);
     let entity_count = index.len();
+    bridge::log_info(&format!(
+        "[IFC-Lite] Entity index: {} entities in {:.0}ms",
+        entity_count,
+        now_ms() - index_start
+    ));
 
     bridge::log(&format!("Found {} entities in IFC file", entity_count));
 
@@ -777,6 +810,16 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         bridge::log(&format!("Aggregate: #{} -> {:?}", parent, children));
     }
 
+    // Clear decoder cache after spatial structure processing to free RAM
+    decoder.clear_cache();
+    bridge::log("[Yew] Cleared decoder cache after spatial structure pass");
+
+    let spatial_time = now_ms() - load_start;
+    bridge::log_info(&format!(
+        "[IFC-Lite] Spatial structure parsed in {:.0}ms",
+        spatial_time
+    ));
+
     // Create geometry router
     let router = GeometryRouter::new();
 
@@ -786,11 +829,14 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
     }));
 
     // Second pass: process geometry
+    let geometry_start = now_ms();
     let mut scanner = EntityScanner::new(content);
     let mut geometry_data: Vec<GeometryData> = Vec::new();
     let mut entity_data: Vec<EntityData> = Vec::new();
     let mut processed = 0;
     let mut errors = 0;
+    let mut total_vertices = 0usize;
+    let mut total_triangles = 0usize;
 
     while let Some((id, type_name, _start, _end)) = scanner.next_entity() {
         // Check if this is an element with potential geometry (using comprehensive check)
@@ -808,8 +854,10 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
             // Decode the entity
             match decoder.decode_by_id(id) {
                 Ok(entity) => {
-                    // Get entity name (attribute 2 for most building elements)
+                    // Get GlobalId (attribute 0), Name (attribute 2), Description (attribute 3) for most building elements
+                    let global_id = entity.get_string(0).map(|s| s.to_string());
                     let name = entity.get_string(2).map(|s| s.to_string());
+                    let description = entity.get_string(3).map(|s| s.to_string());
 
                     // Look up storey information from spatial_entities
                     let (storey_name, storey_elevation) =
@@ -829,6 +877,8 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
                         id: id as u64,
                         entity_type: type_name.to_string(),
                         name: name.clone(),
+                        description: description.clone(),
+                        global_id: global_id.clone(),
                         storey: storey_name,
                         storey_elevation,
                     });
@@ -860,14 +910,18 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
                                     continue;
                                 }
 
-                                // Default color based on element type
-                                let color = get_element_color(&ifc_type);
+                                // Default color based on element type and palette
+                                let color = get_element_color(type_name, state.color_palette);
 
                                 // Identity transform (placement already applied by router)
                                 let transform = [
                                     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
                                     0.0, 0.0, 0.0, 1.0,
                                 ];
+
+                                // Track totals for logging
+                                total_vertices += positions.len() / 3;
+                                total_triangles += indices.len() / 3;
 
                                 geometry_data.push(GeometryData {
                                     entity_id: id as u64,
@@ -907,6 +961,12 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         }
     }
 
+    let geometry_time = now_ms() - geometry_start;
+    bridge::log_info(&format!(
+        "[IFC-Lite] Geometry: {} meshes, {} vertices, {} triangles in {:.0}ms",
+        processed, total_vertices, total_triangles, geometry_time
+    ));
+
     bridge::log(&format!(
         "Processed {} meshes ({} errors)",
         processed, errors
@@ -917,9 +977,36 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         percent: 90.0,
     }));
 
-    // Save to localStorage for Bevy
-    bridge::save_geometry(&geometry_data);
-    bridge::save_entities(&entity_data);
+    // Track which entities have geometry BEFORE transferring ownership
+    let geometry_count = geometry_data.len();
+    let entities_with_geometry: std::collections::HashSet<u64> =
+        geometry_data.iter().map(|g| g.entity_id).collect();
+
+    // Send geometry to Bevy (transfers ownership - no clone needed!)
+    bridge::save_geometry(geometry_data);
+    bridge::log(&format!("[Yew] Transferred {} meshes to Bevy", geometry_count));
+
+    // Clear decoder cache to free RAM
+    decoder.clear_cache();
+
+    // Time the post-processing phases
+    let postprocess_start = now_ms();
+
+    // Build entity_infos - properties loaded on-demand (TODO: implement lazy loading)
+    let entity_infos: Vec<crate::state::EntityInfo> = entity_data
+        .iter()
+        .map(|e| crate::state::EntityInfo {
+            id: e.id,
+            entity_type: e.entity_type.clone(),
+            name: e.name.clone(),
+            description: e.description.clone(),
+            global_id: e.global_id.clone(),
+            storey: e.storey.clone(),
+            storey_elevation: e.storey_elevation,
+            property_sets: Vec::new(),
+            quantities: Vec::new(),
+        })
+        .collect();
 
     // Build storey info for UI (from spatial_entities that are storeys)
     let mut storey_infos: Vec<crate::state::StoreyInfo> = spatial_entities
@@ -944,34 +1031,6 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // Build entity_infos for flat view with properties and quantities
-    let entity_infos: Vec<crate::state::EntityInfo> = entity_data
-        .iter()
-        .map(|e| {
-            let (property_sets, quantities) = extract_properties_and_quantities(
-                e.id as u32,
-                &element_properties,
-                &element_to_type,
-                &mut decoder,
-                unit_scale as f64,
-            );
-            crate::state::EntityInfo {
-                id: e.id,
-                entity_type: e.entity_type.clone(),
-                name: e.name.clone(),
-                global_id: None,
-                storey: e.storey.clone(),
-                storey_elevation: e.storey_elevation,
-                property_sets,
-                quantities,
-            }
-        })
-        .collect();
-
-    // Track which entities have geometry
-    let entities_with_geometry: std::collections::HashSet<u64> =
-        geometry_data.iter().map(|g| g.entity_id).collect();
-
     // Build spatial tree
     // Helper to get node type from entity type
     let get_node_type = |entity_type: &str| -> SpatialNodeType {
@@ -985,13 +1044,19 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         }
     };
 
+    // Build entity lookup map for O(1) access (avoids O(n²) in tree building)
+    let entity_lookup: HashMap<u64, &EntityData> = entity_data
+        .iter()
+        .map(|e| (e.id, e))
+        .collect();
+
     // Recursive function to build tree
     fn build_node(
         id: u32,
         spatial_entities: &HashMap<u32, SpatialInfo>,
         aggregates: &HashMap<u32, Vec<u32>>,
         contained_in: &HashMap<u32, Vec<u32>>,
-        entity_data: &[EntityData],
+        entity_lookup: &HashMap<u64, &EntityData>,
         entities_with_geometry: &std::collections::HashSet<u64>,
         get_node_type: &dyn Fn(&str) -> SpatialNodeType,
     ) -> Option<SpatialNode> {
@@ -1008,7 +1073,7 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
                     spatial_entities,
                     aggregates,
                     contained_in,
-                    entity_data,
+                    entity_lookup,
                     entities_with_geometry,
                     get_node_type,
                 ) {
@@ -1020,13 +1085,14 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
         // Add contained elements (elements in this storey/space)
         if let Some(element_ids) = contained_in.get(&id) {
             for &elem_id in element_ids {
-                // Find the entity data for this element
-                if let Some(elem) = entity_data.iter().find(|e| e.id == elem_id as u64) {
+                // O(1) lookup instead of O(n) linear search
+                if let Some(elem) = entity_lookup.get(&(elem_id as u64)) {
                     let has_geometry = entities_with_geometry.contains(&(elem_id as u64));
+                    // Use display_label() to prefer description over name
                     children.push(SpatialNode {
                         id: elem_id as u64,
                         node_type: SpatialNodeType::Element,
-                        name: elem.name.clone().unwrap_or_else(|| format!("#{}", elem_id)),
+                        name: elem.display_label(),
                         entity_type: elem.entity_type.clone(),
                         elevation: None,
                         children: Vec::new(),
@@ -1083,7 +1149,7 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
             &spatial_entities,
             &aggregates,
             &contained_in,
-            &entity_data,
+            &entity_lookup,
             &entities_with_geometry,
             &get_node_type,
         ) {
@@ -1094,57 +1160,233 @@ pub fn parse_and_process_ifc(content: &str, state: &ViewerStateContext) -> Resul
     state.dispatch(ViewerAction::SetEntities(entity_infos));
     state.dispatch(ViewerAction::SetStoreys(storey_infos));
 
-    bridge::log(&format!(
-        "Geometry sent to Bevy viewer: {} entities",
-        geometry_data.len()
+    let postprocess_time = now_ms() - postprocess_start;
+    bridge::log_info(&format!(
+        "[IFC-Lite] Post-process (tree/entities): {:.0}ms",
+        postprocess_time
+    ));
+
+    let total_time = now_ms() - load_start;
+
+    // Calculate estimated geometry size
+    let geometry_size_mb = (total_vertices * 6 * 4 + total_triangles * 3 * 4) as f64 / (1024.0 * 1024.0);
+
+    bridge::log_info(&format!(
+        "[IFC-Lite] ✓ Load complete: {:.2}s | {} entities, {} meshes | {:.0} KB vertices, {:.0} KB triangles | ~{:.1} MB geometry",
+        total_time / 1000.0,
+        entity_count,
+        geometry_count,
+        (total_vertices * 6 * 4) as f64 / 1024.0,  // 6 floats per vertex (pos+normal)
+        (total_triangles * 3 * 4) as f64 / 1024.0, // 3 u32 per triangle
+        geometry_size_mb
     ));
 
     Ok(())
 }
 
-/// Get default color for element type (matches TypeScript viewer default-materials.ts)
-fn get_element_color(ifc_type: &ifc_lite_core::IfcType) -> [f32; 4] {
-    use ifc_lite_core::IfcType;
-    match ifc_type {
-        // Walls - warm white (matte plaster look)
-        IfcType::IfcWall | IfcType::IfcWallStandardCase => [0.95, 0.93, 0.88, 1.0],
-        // Slabs - cool gray (concrete)
-        IfcType::IfcSlab => [0.75, 0.75, 0.78, 1.0],
-        // Beams - steel blue metallic
-        IfcType::IfcBeam => [0.55, 0.55, 0.6, 1.0],
-        // Columns - steel blue metallic
-        IfcType::IfcColumn => [0.55, 0.55, 0.6, 1.0],
-        // Doors - warm wood
-        IfcType::IfcDoor => [0.6, 0.45, 0.3, 1.0],
-        // Windows - sky blue transparent glass
-        IfcType::IfcWindow => [0.6, 0.8, 0.95, 0.3],
-        // Roof - terracotta tile
-        IfcType::IfcRoof => [0.7, 0.45, 0.35, 1.0],
-        // Stairs - light warm gray
-        IfcType::IfcStair => [0.8, 0.78, 0.75, 1.0],
-        // Railings - dark metal
-        IfcType::IfcRailing => [0.35, 0.35, 0.4, 1.0],
-        // Plates - steel
-        IfcType::IfcPlate => [0.6, 0.6, 0.65, 1.0],
-        // Members - steel
-        IfcType::IfcMember => [0.55, 0.55, 0.6, 1.0],
-        // Curtain walls - glass blue transparent
-        IfcType::IfcCurtainWall => [0.5, 0.7, 0.85, 0.4],
-        // Coverings - light gray
-        IfcType::IfcCovering => [0.85, 0.85, 0.85, 1.0],
-        // Footings - concrete gray
-        IfcType::IfcFooting => [0.65, 0.65, 0.68, 1.0],
-        // Piles - concrete
-        IfcType::IfcPile => [0.6, 0.6, 0.62, 1.0],
-        // Opening elements - invisible/very light
-        IfcType::IfcOpeningElement => [0.9, 0.9, 0.9, 0.1],
-        // Building element proxy - neutral gray
-        IfcType::IfcBuildingElementProxy => [0.7, 0.7, 0.7, 1.0],
-        // Reinforcing - dark steel
-        IfcType::IfcReinforcingBar | IfcType::IfcReinforcingMesh | IfcType::IfcTendon => {
-            [0.4, 0.4, 0.45, 1.0]
-        }
-        // Default - neutral warm gray
-        _ => [0.8, 0.78, 0.75, 1.0],
+/// Get color for element type based on the selected palette
+fn get_element_color(entity_type: &str, palette: ColorPalette) -> [f32; 4] {
+    match palette {
+        ColorPalette::Vibrant => get_vibrant_color(entity_type),
+        ColorPalette::Realistic => get_realistic_color(entity_type),
+        ColorPalette::HighContrast => get_high_contrast_color(entity_type),
+        ColorPalette::Monochrome => get_monochrome_color(entity_type),
+    }
+}
+
+/// Vibrant color palette - saturated, vivid colors
+fn get_vibrant_color(entity_type: &str) -> [f32; 4] {
+    let upper = entity_type.to_uppercase();
+
+    if upper.contains("WALL") {
+        [0.95, 0.90, 0.80, 1.0] // Warm cream
+    } else if upper.contains("SLAB") {
+        [0.85, 0.82, 0.78, 1.0] // Light concrete
+    } else if upper.contains("ROOF") {
+        [0.85, 0.45, 0.35, 1.0] // Terracotta red
+    } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
+        [0.45, 0.55, 0.75, 1.0] // Steel blue
+    } else if upper.contains("DOOR") {
+        [0.65, 0.40, 0.25, 1.0] // Rich wood brown
+    } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
+        [0.4, 0.7, 0.9, 0.4] // Sky blue glass
+    } else if upper.contains("STAIR") || upper.contains("RAMP") {
+        [0.75, 0.70, 0.65, 1.0] // Warm stone
+    } else if upper.contains("RAILING") {
+        [0.30, 0.30, 0.35, 1.0] // Dark metal
+    } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
+        [0.70, 0.50, 0.30, 1.0] // Warm wood
+    } else if upper.contains("SPACE") {
+        [0.7, 0.85, 0.95, 0.15] // Light blue space
+    } else if upper.contains("PLATE") {
+        [0.70, 0.72, 0.78, 1.0] // Steel plate
+    } else if upper.contains("COVERING") {
+        [0.88, 0.85, 0.80, 1.0] // Light finish
+    } else if upper.contains("FOOTING") || upper.contains("PILE") {
+        [0.60, 0.58, 0.55, 1.0] // Dark concrete
+    } else if upper.contains("PROXY") {
+        [0.75, 0.60, 0.80, 1.0] // Purple accent
+    } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
+        [0.40, 0.75, 0.50, 1.0] // Green MEP
+    } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
+        [0.90, 0.80, 0.30, 1.0] // Yellow electrical
+    } else if upper.contains("SANITARY") || upper.contains("FIRE") {
+        [0.95, 0.95, 0.98, 1.0] // White ceramic
+    } else if upper.contains("SHADING") {
+        [0.40, 0.45, 0.55, 0.85] // Blue-gray shade
+    } else if upper.contains("TRANSPORT") {
+        [0.45, 0.45, 0.50, 1.0] // Dark gray
+    } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
+        [0.65, 0.85, 0.65, 0.3] // Light green
+    } else {
+        [0.80, 0.78, 0.75, 1.0] // Neutral gray
+    }
+}
+
+/// Realistic color palette - muted architectural colors
+fn get_realistic_color(entity_type: &str) -> [f32; 4] {
+    let upper = entity_type.to_uppercase();
+
+    if upper.contains("WALL") {
+        [0.92, 0.85, 0.75, 1.0] // Warm beige
+    } else if upper.contains("SLAB") {
+        [0.75, 0.73, 0.70, 1.0] // Concrete gray
+    } else if upper.contains("ROOF") {
+        [0.72, 0.55, 0.45, 1.0] // Terracotta
+    } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
+        [0.60, 0.65, 0.72, 1.0] // Steel blue-gray
+    } else if upper.contains("DOOR") {
+        [0.55, 0.35, 0.20, 1.0] // Wood brown
+    } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
+        [0.5, 0.7, 0.85, 0.35] // Blue glass
+    } else if upper.contains("STAIR") || upper.contains("RAMP") {
+        [0.65, 0.62, 0.58, 1.0] // Warm gray
+    } else if upper.contains("RAILING") {
+        [0.35, 0.35, 0.38, 1.0] // Dark metallic
+    } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
+        [0.65, 0.45, 0.28, 1.0] // Warm wood
+    } else if upper.contains("SPACE") {
+        [0.8, 0.85, 0.95, 0.12] // Light blue
+    } else if upper.contains("PLATE") {
+        [0.68, 0.70, 0.75, 1.0] // Steel
+    } else if upper.contains("COVERING") {
+        [0.82, 0.80, 0.76, 1.0] // Light warm gray
+    } else if upper.contains("FOOTING") || upper.contains("PILE") {
+        [0.55, 0.53, 0.50, 1.0] // Dark concrete
+    } else if upper.contains("PROXY") {
+        [0.70, 0.65, 0.75, 1.0] // Purple tint
+    } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
+        [0.55, 0.70, 0.58, 1.0] // Green tint
+    } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
+        [0.75, 0.72, 0.45, 1.0] // Yellow tint
+    } else if upper.contains("SANITARY") || upper.contains("FIRE") {
+        [0.92, 0.92, 0.95, 1.0] // White ceramic
+    } else if upper.contains("SHADING") {
+        [0.45, 0.48, 0.55, 0.8] // Dark blue-gray
+    } else if upper.contains("TRANSPORT") {
+        [0.40, 0.40, 0.42, 1.0] // Dark gray
+    } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
+        [0.75, 0.85, 0.75, 0.25] // Light green
+    } else {
+        [0.75, 0.72, 0.70, 1.0] // Neutral warm gray
+    }
+}
+
+/// High contrast color palette - bold colors for visibility
+fn get_high_contrast_color(entity_type: &str) -> [f32; 4] {
+    let upper = entity_type.to_uppercase();
+
+    if upper.contains("WALL") {
+        [1.0, 0.95, 0.85, 1.0] // Bright cream
+    } else if upper.contains("SLAB") {
+        [0.7, 0.7, 0.7, 1.0] // Medium gray
+    } else if upper.contains("ROOF") {
+        [0.9, 0.3, 0.2, 1.0] // Bright red
+    } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
+        [0.2, 0.4, 0.8, 1.0] // Bright blue
+    } else if upper.contains("DOOR") {
+        [0.6, 0.3, 0.1, 1.0] // Dark brown
+    } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
+        [0.3, 0.7, 1.0, 0.5] // Bright cyan glass
+    } else if upper.contains("STAIR") || upper.contains("RAMP") {
+        [0.9, 0.7, 0.5, 1.0] // Orange-tan
+    } else if upper.contains("RAILING") {
+        [0.2, 0.2, 0.2, 1.0] // Near black
+    } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
+        [0.8, 0.5, 0.2, 1.0] // Bright orange
+    } else if upper.contains("SPACE") {
+        [0.6, 0.8, 1.0, 0.2] // Light cyan
+    } else if upper.contains("PLATE") {
+        [0.5, 0.5, 0.6, 1.0] // Blue-gray
+    } else if upper.contains("COVERING") {
+        [0.95, 0.9, 0.85, 1.0] // Off-white
+    } else if upper.contains("FOOTING") || upper.contains("PILE") {
+        [0.4, 0.4, 0.35, 1.0] // Dark brown-gray
+    } else if upper.contains("PROXY") {
+        [0.8, 0.4, 0.9, 1.0] // Bright purple
+    } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
+        [0.2, 0.9, 0.4, 1.0] // Bright green
+    } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
+        [1.0, 0.9, 0.2, 1.0] // Bright yellow
+    } else if upper.contains("SANITARY") || upper.contains("FIRE") {
+        [1.0, 1.0, 1.0, 1.0] // Pure white
+    } else if upper.contains("SHADING") {
+        [0.3, 0.35, 0.5, 0.9] // Dark blue
+    } else if upper.contains("TRANSPORT") {
+        [0.3, 0.3, 0.3, 1.0] // Dark gray
+    } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
+        [0.5, 1.0, 0.5, 0.35] // Bright green
+    } else {
+        [0.85, 0.85, 0.85, 1.0] // Light gray
+    }
+}
+
+/// Monochrome color palette - grayscale for technical views
+fn get_monochrome_color(entity_type: &str) -> [f32; 4] {
+    let upper = entity_type.to_uppercase();
+
+    // Use different gray levels based on element type for visual hierarchy
+    if upper.contains("WALL") {
+        [0.85, 0.85, 0.85, 1.0] // Light gray
+    } else if upper.contains("SLAB") {
+        [0.70, 0.70, 0.70, 1.0] // Medium gray
+    } else if upper.contains("ROOF") {
+        [0.60, 0.60, 0.60, 1.0] // Medium-dark gray
+    } else if upper.contains("BEAM") || upper.contains("COLUMN") || upper.contains("MEMBER") {
+        [0.50, 0.50, 0.50, 1.0] // Mid gray
+    } else if upper.contains("DOOR") {
+        [0.40, 0.40, 0.40, 1.0] // Dark gray
+    } else if upper.contains("WINDOW") || upper.contains("CURTAINWALL") {
+        [0.75, 0.75, 0.75, 0.4] // Transparent light gray
+    } else if upper.contains("STAIR") || upper.contains("RAMP") {
+        [0.65, 0.65, 0.65, 1.0] // Medium-light gray
+    } else if upper.contains("RAILING") {
+        [0.30, 0.30, 0.30, 1.0] // Very dark gray
+    } else if upper.contains("FURNITURE") || upper.contains("FURNISHING") {
+        [0.55, 0.55, 0.55, 1.0] // Medium gray
+    } else if upper.contains("SPACE") {
+        [0.90, 0.90, 0.90, 0.15] // Very light gray, transparent
+    } else if upper.contains("PLATE") {
+        [0.60, 0.60, 0.60, 1.0] // Medium-dark gray
+    } else if upper.contains("COVERING") {
+        [0.80, 0.80, 0.80, 1.0] // Light gray
+    } else if upper.contains("FOOTING") || upper.contains("PILE") {
+        [0.45, 0.45, 0.45, 1.0] // Dark gray
+    } else if upper.contains("PROXY") {
+        [0.70, 0.70, 0.70, 1.0] // Medium gray
+    } else if upper.contains("FLOW") || upper.contains("DUCT") || upper.contains("PIPE") {
+        [0.55, 0.55, 0.55, 1.0] // Medium gray
+    } else if upper.contains("ELECTRIC") || upper.contains("ENERGY") {
+        [0.65, 0.65, 0.65, 1.0] // Medium-light gray
+    } else if upper.contains("SANITARY") || upper.contains("FIRE") {
+        [0.95, 0.95, 0.95, 1.0] // Near white
+    } else if upper.contains("SHADING") {
+        [0.35, 0.35, 0.35, 0.85] // Dark gray, slightly transparent
+    } else if upper.contains("TRANSPORT") {
+        [0.40, 0.40, 0.40, 1.0] // Dark gray
+    } else if upper.contains("GEOGRAPHIC") || upper.contains("VIRTUAL") {
+        [0.85, 0.85, 0.85, 0.25] // Light gray, transparent
+    } else {
+        [0.75, 0.75, 0.75, 1.0] // Default gray
     }
 }

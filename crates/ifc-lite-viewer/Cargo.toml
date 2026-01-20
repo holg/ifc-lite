@@ -5,26 +5,35 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "IFC-Lite web viewer application"
+description = "IFC-Lite web viewer - unified Yew UI + Bevy 3D in single WASM"
 
-[[bin]]
-name = "ifc_lite_viewer"
-path = "src/main.rs"
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+# Note: bin target removed - using lib.rs as WASM entry point with #[wasm_bindgen(start)]
 
 [dependencies]
-# UI components
-ifc-lite-yew = { path = "../ifc-lite-yew" }
+# UI components (Yew-based) - unified mode for direct memory sharing
+ifc-lite-yew = { path = "../ifc-lite-yew", features = ["unified"] }
 
-# Core IFC parsing
-ifc-lite-core = { path = "../../rust/core", features = ["serde"] }
-ifc-lite-geometry = { path = "../../rust/geometry" }
+# 3D renderer (Bevy-based) - included in same WASM
+ifc-lite-bevy = { path = "../ifc-lite-bevy", default-features = false }
 
 # Yew framework
 yew = { version = "0.22", features = ["csr"] }
 
 # WASM
 console_error_panic_hook = "0.1"
-wasm-bindgen = "0.2"
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = ["console", "Window"] }
 
 # Logging
 log = "0.4"
+
+# Shared state
+once_cell = "1.19"

@@ -66,6 +66,52 @@ pub enum SectionAxis {
     Z,
 }
 
+/// Color palette for IFC visualization
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum ColorPalette {
+    /// Vibrant - saturated, vivid colors (default)
+    #[default]
+    Vibrant,
+    /// Realistic - muted architectural colors
+    Realistic,
+    /// High Contrast - bold colors for visibility
+    HighContrast,
+    /// Monochrome - grayscale for technical views
+    Monochrome,
+}
+
+impl ColorPalette {
+    /// Get palette name for display
+    pub fn name(&self) -> &'static str {
+        match self {
+            ColorPalette::Vibrant => "Vibrant",
+            ColorPalette::Realistic => "Realistic",
+            ColorPalette::HighContrast => "High Contrast",
+            ColorPalette::Monochrome => "Monochrome",
+        }
+    }
+
+    /// Get all available palettes
+    pub fn all() -> &'static [ColorPalette] {
+        &[
+            ColorPalette::Vibrant,
+            ColorPalette::Realistic,
+            ColorPalette::HighContrast,
+            ColorPalette::Monochrome,
+        ]
+    }
+
+    /// Cycle to next palette
+    pub fn next(&self) -> ColorPalette {
+        match self {
+            ColorPalette::Vibrant => ColorPalette::Realistic,
+            ColorPalette::Realistic => ColorPalette::HighContrast,
+            ColorPalette::HighContrast => ColorPalette::Monochrome,
+            ColorPalette::Monochrome => ColorPalette::Vibrant,
+        }
+    }
+}
+
 /// Section plane state
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SectionPlaneState {
@@ -130,11 +176,30 @@ pub struct EntityInfo {
     pub id: u64,
     pub entity_type: String,
     pub name: Option<String>,
+    /// Description attribute - often more human-readable than Name
+    pub description: Option<String>,
     pub global_id: Option<String>,
     pub storey: Option<String>,
     pub storey_elevation: Option<f32>,
     pub property_sets: Vec<PropertySet>,
     pub quantities: Vec<QuantityValue>,
+}
+
+impl EntityInfo {
+    /// Get display label: prefer description, then name, then type#id
+    pub fn display_label(&self) -> String {
+        if let Some(ref desc) = self.description {
+            if !desc.is_empty() && desc != "$" {
+                return desc.clone();
+            }
+        }
+        if let Some(ref name) = self.name {
+            if !name.is_empty() && name != "$" {
+                return name.clone();
+            }
+        }
+        format!("#{}", self.id)
+    }
 }
 
 /// Storey info
@@ -216,6 +281,9 @@ pub struct ViewerState {
 
     // Search
     pub search_query: String,
+
+    // Color palette for visualization
+    pub color_palette: ColorPalette,
 }
 
 impl Default for ViewerState {
@@ -244,6 +312,7 @@ impl Default for ViewerState {
             pending_measure_point: None,
             next_measure_id: 1,
             search_query: String::new(),
+            color_palette: ColorPalette::default(),
         }
     }
 }
@@ -307,6 +376,10 @@ pub enum ViewerAction {
 
     // Search
     SetSearchQuery(String),
+
+    // Color palette
+    SetColorPalette(ColorPalette),
+    CycleColorPalette,
 }
 
 impl Reducible for ViewerState {
@@ -510,6 +583,14 @@ impl Reducible for ViewerState {
             // Search
             ViewerAction::SetSearchQuery(query) => {
                 next.search_query = query;
+            }
+
+            // Color palette
+            ViewerAction::SetColorPalette(palette) => {
+                next.color_palette = palette;
+            }
+            ViewerAction::CycleColorPalette => {
+                next.color_palette = next.color_palette.next();
             }
         }
 

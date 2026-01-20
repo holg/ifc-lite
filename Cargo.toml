@@ -2,6 +2,10 @@
 members = [
     "crates/ifc-lite-bevy",
     "crates/ifc-lite-ffi",
+    "crates/ifc-lite-geometry",
+    "crates/ifc-lite-model",
+    "crates/ifc-lite-parser",
+    "crates/ifc-lite-unified",
     "crates/ifc-lite-viewer",
     "crates/ifc-lite-yew",
     "rust/core",
@@ -28,3 +32,10 @@ overflow-checks = false # Remove overflow checks in release
 [profile.release.package."*"]
 opt-level = 3
 strip = true
+
+# Pin wasm-bindgen to match installed CLI version
+[workspace.dependencies]
+wasm-bindgen = "=0.2.106"
+wasm-bindgen-futures = "=0.4.56"
+js-sys = "=0.3.83"
+web-sys = "=0.3.83"

@@ -1,0 +1,34 @@
+[package]
+name = "ifc-lite-parser"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance IFC parser implementing ifc-lite-model traits"
+license = "MPL-2.0"
+repository = "https://github.com/nicories/ifc-lite"
+keywords = ["ifc", "bim", "parser", "step"]
+categories = ["parser-implementations", "encoding"]
+
+[dependencies]
+# Our trait definitions
+ifc-lite-model = { path = "../ifc-lite-model" }
+
+# Parsing
+nom = "8"
+memchr = "2"
+lexical-core = "1"
+
+# Data structures
+rustc-hash = "2"
+
+# Serialization (for debug/testing)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[features]
+default = []

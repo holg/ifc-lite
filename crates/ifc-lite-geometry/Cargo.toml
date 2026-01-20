@@ -1,0 +1,44 @@
+[package]
+name = "ifc-lite-geometry-new"
+version = "0.1.0"
+edition = "2021"
+description = "Geometry processing for IFC models using trait-based architecture"
+license = "MPL-2.0"
+repository = "https://github.com/louistrue/ifc-lite"
+keywords = ["ifc", "bim", "geometry", "mesh", "aec"]
+categories = ["graphics", "parsing"]
+
+[features]
+default = []
+
+[dependencies]
+# Our trait definitions and parser
+ifc-lite-model = { path = "../ifc-lite-model" }
+ifc-lite-parser = { path = "../ifc-lite-parser" }
+
+# CSG operations for opening subtraction
+csgrs = { version = "0.20", default-features = false, features = [
+    "earcut",
+    "f64",
+] }
+
+# Triangulation
+earcutr = "0.4"
+
+# 2D polygon boolean operations for profile-level void subtraction
+i_overlay = "1.9"
+
+# Math library
+nalgebra = { version = "0.33", default-features = false, features = ["std"] }
+
+# Parallel processing
+rayon = "1.10"
+
+# Fast hashing
+rustc-hash = "2"
+
+# Error handling
+thiserror = "2"
+
+[dev-dependencies]
+approx = "0.5"

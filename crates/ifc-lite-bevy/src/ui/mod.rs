@@ -14,7 +14,7 @@ pub use properties::*;
 pub use styles::*;
 pub use toolbar::{ButtonAction, ToolbarButton, ToolbarPlugin};
 
-use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, ScrollPosition};
 
@@ -64,7 +64,7 @@ fn ui_scroll_system(
         *logged = true;
         let count = scrollable_query.iter().count();
         println!("[Scroll] Found {} scrollable panels", count);
-        for (scroll_pos, computed, global_transform) in scrollable_query.iter() {
+        for (_scroll_pos, computed, global_transform) in scrollable_query.iter() {
             let node_pos = global_transform.translation().truncate();
             let node_size = computed.size();
             println!("[Scroll] Panel at {:?}, size {:?}", node_pos, node_size);

@@ -217,6 +217,22 @@ html, body {
     color: white;
 }
 
+/* Palette button with text indicator */
+.tool-btn.palette-btn {
+    width: auto;
+    padding: 0 8px;
+    gap: 4px;
+}
+
+.palette-indicator {
+    font-size: 11px;
+    font-weight: 500;
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .toolbar-loading {
     display: flex;
     align-items: center;
