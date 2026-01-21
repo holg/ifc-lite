@@ -19,7 +19,7 @@
 
 use crate::{log, IfcSceneData, SceneBounds, ViewerSettings};
 use bevy::asset::RenderAssetUsages;
-use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -34,6 +34,7 @@ impl Plugin for MeshPlugin {
             .init_resource::<TriangleEntityMapping>()
             .init_resource::<CurrentPalette>()
             .init_resource::<EntityColorMapping>()
+            .init_resource::<PreviousSelection>()
             .add_systems(
                 Update,
                 (
@@ -73,11 +74,13 @@ pub struct CurrentPalette {
 #[derive(Resource, Default)]
 pub struct CurrentPalette;
 
-/// Lightweight entity info for palette switching (no geometry data)
+/// Lightweight entity info for palette switching and selection highlighting (no geometry data)
 #[cfg(feature = "color-palette")]
 #[derive(Clone, Debug)]
 pub struct EntityColorInfo {
+    pub entity_id: u64,
     pub entity_type: String,
+    pub original_color: [f32; 4],
     pub start_vertex: u32,
     pub vertex_count: u32,
 }
@@ -465,10 +468,12 @@ impl BatchBuilder {
             self.triangle_to_entity.push(ifc_mesh.entity_id);
         }
 
-        // Track lightweight entity info for palette switching (no geometry!)
+        // Track lightweight entity info for palette switching and selection (no geometry!)
         #[cfg(feature = "color-palette")]
         self.entity_color_info.push(EntityColorInfo {
+            entity_id: ifc_mesh.entity_id,
             entity_type: ifc_mesh.entity_type.clone(),
+            original_color: color,
             start_vertex: start_vertex as u32,
             vertex_count: vertex_count as u32,
         });
@@ -543,7 +548,7 @@ fn spawn_meshes_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut scene_data: ResMut<IfcSceneData>,
     mut triangle_mapping: ResMut<TriangleEntityMapping>,
-    color_mapping: ResMut<EntityColorMapping>,
+    mut color_mapping: ResMut<EntityColorMapping>,
     existing_entities: Query<Entity, With<IfcEntity>>,
     existing_batches: Query<Entity, With<BatchedMesh>>,
 ) {
@@ -807,22 +812,94 @@ fn update_mesh_visibility_system(
     }
 }
 
-/// System to update mesh selection highlighting
-/// Note: With batched rendering, per-entity selection requires custom shaders.
-/// TODO: Implement selection via outline post-process or stencil buffer.
+/// Selection highlight color (light blue / hellblau)
+#[cfg(feature = "color-palette")]
+const SELECTION_COLOR: [f32; 4] = [0.3, 0.7, 1.0, 1.0];
+
+/// Resource to track previous selection for efficient updates
+#[derive(Resource, Default)]
+pub struct PreviousSelection {
+    #[cfg(feature = "color-palette")]
+    pub selected_ids: rustc_hash::FxHashSet<u64>,
+}
+
+/// System to update mesh selection highlighting via vertex colors
+#[cfg(feature = "color-palette")]
 fn update_mesh_selection_system(
     selection: Res<crate::picking::SelectionState>,
-    _materials: ResMut<Assets<StandardMaterial>>,
-    _query: Query<(&IfcEntity, &MeshMaterial3d<StandardMaterial>)>,
+    mut previous_selection: ResMut<PreviousSelection>,
+    color_mapping: Res<EntityColorMapping>,
+    mut mesh_assets: ResMut<Assets<Mesh>>,
+    batched_meshes: Query<(&Mesh3d, &BatchedMesh)>,
 ) {
     if !selection.is_changed() {
-        // With batched meshes, per-entity selection highlighting would require:
-        // 1. Custom shader with entity ID buffer, or
-        // 2. Outline post-processing effect, or
-        // 3. Separate unbatched mesh for selected entities
-        // For now, selection state is tracked but not visually shown.
-        // The Yew UI still shows selection in the hierarchy panel.
+        return;
     }
+
+    let current_selection = &selection.selected;
+
+    // Find entities that changed selection state
+    let newly_selected: Vec<u64> = current_selection
+        .difference(&previous_selection.selected_ids)
+        .copied()
+        .collect();
+    let newly_deselected: Vec<u64> = previous_selection.selected_ids
+        .difference(current_selection)
+        .copied()
+        .collect();
+
+    if newly_selected.is_empty() && newly_deselected.is_empty() {
+        return;
+    }
+
+    // Update vertex colors in batched meshes
+    for (mesh_handle, batched_mesh) in batched_meshes.iter() {
+        let Some(mesh) = mesh_assets.get_mut(&mesh_handle.0) else {
+            continue;
+        };
+
+        let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) else {
+            continue;
+        };
+
+        let color_infos = if batched_mesh.is_transparent {
+            &color_mapping.transparent
+        } else {
+            &color_mapping.opaque
+        };
+
+        // Apply highlight color to newly selected
+        for &entity_id in &newly_selected {
+            for info in color_infos.iter().filter(|i| i.entity_id == entity_id) {
+                let start = info.start_vertex as usize;
+                let end = start + info.vertex_count as usize;
+                for color in colors[start..end].iter_mut() {
+                    *color = SELECTION_COLOR;
+                }
+            }
+        }
+
+        // Restore original color for newly deselected
+        for &entity_id in &newly_deselected {
+            for info in color_infos.iter().filter(|i| i.entity_id == entity_id) {
+                let start = info.start_vertex as usize;
+                let end = start + info.vertex_count as usize;
+                for color in colors[start..end].iter_mut() {
+                    *color = info.original_color;
+                }
+            }
+        }
+    }
+
+    // Update previous selection state
+    previous_selection.selected_ids = current_selection.clone();
+}
+
+#[cfg(not(feature = "color-palette"))]
+fn update_mesh_selection_system(
+    _selection: Res<crate::picking::SelectionState>,
+) {
+    // Selection highlighting requires color-palette feature for vertex color updates
 }
 
 /// System to poll for focus commands from Yew (zoom to entity)

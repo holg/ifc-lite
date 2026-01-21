@@ -1,0 +1,38 @@
+[package]
+name = "ifc-lite-viewer-leptos"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "IFC-Lite web viewer - unified Leptos UI + Bevy 3D in single WASM"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+# UI components (Leptos-based) - unified mode for direct memory sharing
+ifc-lite-leptos = { path = "../ifc-lite-leptos", features = ["unified"] }
+
+# 3D renderer (Bevy-based) - included in same WASM
+# color-palette feature enables selection highlighting and palette switching
+ifc-lite-bevy = { path = "../ifc-lite-bevy", default-features = false, features = ["color-palette"] }
+
+# Leptos framework
+leptos = { version = "0.7", features = ["csr"] }
+
+# WASM
+console_error_panic_hook = "0.1"
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = ["console", "Window"] }
+
+# Logging
+log = "0.4"
+
+# Shared state
+once_cell = "1.19"

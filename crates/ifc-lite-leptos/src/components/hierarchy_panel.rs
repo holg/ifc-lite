@@ -382,6 +382,13 @@ fn TreeRow(
                 top,
                 8 + row.depth * 16
             )
+            on:click=move |_| {
+                if is_element {
+                    on_select(row_id);
+                } else {
+                    on_toggle(row_id);
+                }
+            }
         >
             // Expand/collapse toggle
             <span

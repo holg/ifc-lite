@@ -183,6 +183,7 @@ fn UrlLoader() -> impl IntoView {
 #[component]
 fn StateBridge() -> impl IntoView {
     let state = use_viewer_state();
+    let interval_started = RwSignal::new(false);
 
     // Sync visibility to Bevy when it changes
     Effect::new(move |_| {
@@ -214,9 +215,14 @@ fn StateBridge() -> impl IntoView {
         bridge::save_palette(palette);
     });
 
-    // Poll selection from Bevy
+    // Poll selection from Bevy - only start interval once
     Effect::new(move |_| {
-        let _interval = Interval::new(100, move || {
+        if interval_started.get_untracked() {
+            return;
+        }
+        interval_started.set(true);
+
+        let poll_interval = Interval::new(100, move || {
             // Only process if source is "bevy"
             if bridge::get_selection_source().as_deref() != Some("bevy") {
                 return;
@@ -238,10 +244,8 @@ fn StateBridge() -> impl IntoView {
             }
         });
 
-        // Keep interval alive
-        on_cleanup(move || {
-            // Interval dropped on cleanup
-        });
+        // Leak interval to keep it alive - it runs for the lifetime of the app
+        std::mem::forget(poll_interval);
     });
 
     view! {}

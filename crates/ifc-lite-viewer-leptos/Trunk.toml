@@ -1,0 +1,13 @@
+[build]
+target = "index.html"
+dist = "dist"
+# Don't minify - skip wasm-opt
+minify = "never"
+
+[watch]
+ignore = ["dist"]
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8083
+open = false

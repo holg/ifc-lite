@@ -14,6 +14,9 @@ pub use bridge::{
     save_camera_cmd, save_focus, save_geometry, save_palette, save_section, save_selection,
     save_visibility, CameraCommand, ColorPalette, EntityData, FocusData, GeometryData,
     SectionData, SelectionData, VisibilityData,
+    // Cache exports
+    compute_file_hash, is_model_cached, load_cached_model, save_model_to_cache,
+    clear_model_cache, CachedModel, CacheEntry, CacheIndex,
 };
 pub use components::{App, ViewerLayout};
 pub use state::{

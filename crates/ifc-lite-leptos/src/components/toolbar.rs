@@ -289,7 +289,241 @@ fn now_ms() -> f64 {
     js_sys::Date::now()
 }
 
+/// Extract property sets and quantities for an element
+fn extract_properties_and_quantities(
+    element_id: u32,
+    element_properties: &std::collections::HashMap<u32, Vec<u32>>,
+    element_to_type: &std::collections::HashMap<u32, u32>,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f64,
+) -> (Vec<crate::state::PropertySet>, Vec<crate::state::QuantityValue>) {
+    use crate::state::{PropertySet, PropertyValue, QuantityValue};
+
+    let mut property_sets = Vec::new();
+    let mut quantities = Vec::new();
+
+    // Collect property definition IDs from both element and its type
+    let mut prop_def_ids: Vec<u32> = Vec::new();
+
+    // Get direct properties on this element
+    if let Some(ids) = element_properties.get(&element_id) {
+        prop_def_ids.extend(ids.iter().cloned());
+    }
+
+    // Get properties from element's type (inherited)
+    if let Some(&type_id) = element_to_type.get(&element_id) {
+        if let Some(ids) = element_properties.get(&type_id) {
+            prop_def_ids.extend(ids.iter().cloned());
+        }
+    }
+
+    if prop_def_ids.is_empty() {
+        return (property_sets, quantities);
+    }
+
+    for prop_def_id in prop_def_ids {
+        // Decode the property definition
+        let prop_def = match decoder.decode_by_id(prop_def_id) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        match prop_def.ifc_type {
+            ifc_lite_core::IfcType::IfcPropertySet => {
+                // IfcPropertySet: (GlobalId, OwnerHistory, Name, Description, HasProperties)
+                let pset_name = prop_def
+                    .get_string(2)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("PropertySet #{}", prop_def_id));
+
+                let mut properties = Vec::new();
+
+                // Get HasProperties list (attribute 4)
+                if let Some(prop_refs) = get_ref_list(&prop_def, 4) {
+                    for prop_id in prop_refs {
+                        if let Ok(prop) = decoder.decode_by_id(prop_id) {
+                            // IfcPropertySingleValue: (Name, Description, NominalValue, Unit)
+                            if prop.ifc_type == ifc_lite_core::IfcType::IfcPropertySingleValue {
+                                let name = prop
+                                    .get_string(0)
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_default();
+
+                                // Get value - can be various types
+                                let value = if let Some(val) = prop.get(2) {
+                                    format_property_value(val)
+                                } else {
+                                    String::new()
+                                };
+
+                                // Get unit if present
+                                let unit = prop.get_string(3).map(|s| s.to_string());
+
+                                if !name.is_empty() {
+                                    properties.push(PropertyValue { name, value, unit });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !properties.is_empty() {
+                    property_sets.push(PropertySet {
+                        name: pset_name,
+                        properties,
+                    });
+                }
+            }
+            ifc_lite_core::IfcType::IfcElementQuantity => {
+                // IfcElementQuantity: (GlobalId, OwnerHistory, Name, Description, MethodOfMeasurement, Quantities)
+                let qset_name = prop_def
+                    .get_string(2)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("Quantities #{}", prop_def_id));
+
+                // Get Quantities list (attribute 5)
+                if let Some(qty_refs) = get_ref_list(&prop_def, 5) {
+                    for qty_id in qty_refs {
+                        if let Ok(qty) = decoder.decode_by_id(qty_id) {
+                            // IfcPhysicalQuantity subtypes: Name, Description, ...values
+                            let name = qty.get_string(0).map(|s| s.to_string()).unwrap_or_default();
+
+                            // Apply unit scale: length * scale, area * scale², volume * scale³
+                            let (value, unit, qty_type) = match qty.ifc_type {
+                                ifc_lite_core::IfcType::IfcQuantityLength => {
+                                    let val = qty.get_float(3).unwrap_or(0.0) * unit_scale;
+                                    (val, "m".to_string(), "Length".to_string())
+                                }
+                                ifc_lite_core::IfcType::IfcQuantityArea => {
+                                    let val = qty.get_float(3).unwrap_or(0.0) * unit_scale * unit_scale;
+                                    (val, "m²".to_string(), "Area".to_string())
+                                }
+                                ifc_lite_core::IfcType::IfcQuantityVolume => {
+                                    let val = qty.get_float(3).unwrap_or(0.0) * unit_scale * unit_scale * unit_scale;
+                                    (val, "m³".to_string(), "Volume".to_string())
+                                }
+                                ifc_lite_core::IfcType::IfcQuantityCount => {
+                                    let val = qty.get_float(3).unwrap_or(0.0);
+                                    (val, "".to_string(), "Count".to_string())
+                                }
+                                ifc_lite_core::IfcType::IfcQuantityWeight => {
+                                    let val = qty.get_float(3).unwrap_or(0.0);
+                                    (val, "kg".to_string(), "Weight".to_string())
+                                }
+                                ifc_lite_core::IfcType::IfcQuantityTime => {
+                                    let val = qty.get_float(3).unwrap_or(0.0);
+                                    (val, "s".to_string(), "Time".to_string())
+                                }
+                                _ => continue,
+                            };
+
+                            if !name.is_empty() {
+                                quantities.push(QuantityValue {
+                                    name: format!("{}: {}", qset_name, name),
+                                    value,
+                                    unit,
+                                    quantity_type: qty_type,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    (property_sets, quantities)
+}
+
+/// Format a property value for display
+fn format_property_value(val: &ifc_lite_core::AttributeValue) -> String {
+    match val {
+        ifc_lite_core::AttributeValue::String(s) => s.clone(),
+        ifc_lite_core::AttributeValue::Float(f) => format!("{:.4}", f),
+        ifc_lite_core::AttributeValue::Integer(i) => i.to_string(),
+        ifc_lite_core::AttributeValue::Enum(e) => e.clone(),
+        ifc_lite_core::AttributeValue::List(items) => {
+            // Check if this is a typed value (first element is type name)
+            if items.len() >= 2 {
+                if let ifc_lite_core::AttributeValue::String(type_name) = &items[0] {
+                    let value_parts: Vec<String> = items[1..].iter().map(format_property_value).collect();
+                    return format!("{}({})", type_name, value_parts.join(", "));
+                }
+            }
+            let formatted: Vec<String> = items.iter().map(format_property_value).collect();
+            format!("[{}]", formatted.join(", "))
+        }
+        ifc_lite_core::AttributeValue::EntityRef(id) => format!("#{}", id),
+        ifc_lite_core::AttributeValue::Null => "".to_string(),
+        ifc_lite_core::AttributeValue::Derived => "*".to_string(),
+    }
+}
+
+/// Load model from cache and send to Bevy
+fn load_from_cache(
+    cached: bridge::CachedModel,
+    state: crate::state::ViewerState,
+    load_start: f64,
+) -> Result<(), String> {
+    state.loading.set_progress(Progress {
+        phase: "Loading from cache".to_string(),
+        percent: 50.0,
+    });
+
+    let geometry_count = cached.geometry.len();
+    let entity_count = cached.entities.len();
+
+    // Send geometry to Bevy
+    bridge::save_geometry(cached.geometry);
+
+    // Build entity infos from cached entity data
+    let entity_infos: Vec<EntityInfo> = cached
+        .entities
+        .into_iter()
+        .map(|e| EntityInfo {
+            id: e.id,
+            entity_type: e.entity_type,
+            name: e.name,
+            description: e.description,
+            global_id: e.global_id,
+            storey: e.storey,
+            storey_elevation: e.storey_elevation,
+            // Note: property_sets and quantities not cached (would be too large)
+            property_sets: Vec::new(),
+            quantities: Vec::new(),
+        })
+        .collect();
+
+    // Load spatial tree if cached
+    if let Some(tree_json) = cached.spatial_tree_json {
+        if let Ok(tree) = serde_json::from_str::<SpatialNode>(&tree_json) {
+            state.scene.set_spatial_tree(tree);
+        }
+    }
+
+    // Load storeys if cached
+    if let Some(storeys_json) = cached.storeys_json {
+        if let Ok(storeys) = serde_json::from_str::<Vec<crate::state::StoreyInfo>>(&storeys_json) {
+            state.scene.set_storeys(storeys);
+        }
+    }
+
+    state.scene.set_entities(entity_infos);
+
+    let total_time = now_ms() - load_start;
+    bridge::log_info(&format!(
+        "[IFC-Lite] Cache load complete: {:.2}s | {} entities, {} meshes",
+        total_time / 1000.0,
+        entity_count,
+        geometry_count
+    ));
+
+    Ok(())
+}
+
 /// Parse IFC content and send geometry to Bevy
+/// Uses localStorage cache for faster reloads of previously loaded files
 pub fn parse_and_process_ifc(
     content: &str,
     state: crate::state::ViewerState,
@@ -298,10 +532,24 @@ pub fn parse_and_process_ifc(
     use std::collections::HashSet;
 
     let load_start = now_ms();
+    let file_size_mb = content.len() as f64 / (1024.0 * 1024.0);
     bridge::log_info(&format!(
         "[IFC-Lite] Starting load, file size: {:.2} MB",
-        content.len() as f64 / (1024.0 * 1024.0)
+        file_size_mb
     ));
+
+    // Check cache first
+    let file_hash = bridge::compute_file_hash(content);
+    if let Some(cached) = bridge::load_cached_model(&file_hash) {
+        bridge::log_info(&format!(
+            "[IFC-Lite] Cache hit! Loading {} entities, {} meshes from cache",
+            cached.entities.len(),
+            cached.geometry.len()
+        ));
+        return load_from_cache(cached, state, load_start);
+    }
+
+    bridge::log_info("[IFC-Lite] Cache miss, parsing IFC file...");
 
     // Build entity index for O(1) lookups
     let index_start = now_ms();
@@ -321,12 +569,17 @@ pub fn parse_and_process_ifc(
         percent: 10.0,
     });
 
-    // First pass: collect spatial structure
+    // First pass: collect spatial structure and property relationships
     let mut spatial_entities: HashMap<u32, SpatialInfo> = HashMap::new();
     let mut aggregates: HashMap<u32, Vec<u32>> = HashMap::new();
     let mut contained_in: HashMap<u32, Vec<u32>> = HashMap::new();
     let mut element_to_storey: HashMap<u32, u32> = HashMap::new();
     let mut project_id: Option<u32> = None;
+
+    // Property relationships: element -> property definition IDs
+    let mut element_properties: HashMap<u32, Vec<u32>> = HashMap::new();
+    // Type relationships: element -> type object ID
+    let mut element_to_type: HashMap<u32, u32> = HashMap::new();
 
     // Scan for spatial structure
     for line in content.lines() {
@@ -458,6 +711,33 @@ pub fn parse_and_process_ifc(
                                 .extend(elements.clone());
                             for elem_id in elements {
                                 element_to_storey.insert(elem_id, structure_id);
+                            }
+                        }
+                    }
+                }
+            }
+            "IFCRELDEFINESBYPROPERTIES" => {
+                // IfcRelDefinesByProperties: (GlobalId, OwnerHistory, Name, Description, RelatedObjects, RelatingPropertyDefinition)
+                if let Ok(entity) = decoder.decode_by_id(id) {
+                    if let Some(prop_def_id) = entity.get_ref(5) {
+                        if let Some(related_objects) = get_ref_list(&entity, 4) {
+                            for obj_id in related_objects {
+                                element_properties
+                                    .entry(obj_id)
+                                    .or_default()
+                                    .push(prop_def_id);
+                            }
+                        }
+                    }
+                }
+            }
+            "IFCRELDEFINESBYTYPE" => {
+                // IfcRelDefinesByType: (GlobalId, OwnerHistory, Name, Description, RelatedObjects, RelatingType)
+                if let Ok(entity) = decoder.decode_by_id(id) {
+                    if let Some(type_id) = entity.get_ref(5) {
+                        if let Some(related_objects) = get_ref_list(&entity, 4) {
+                            for obj_id in related_objects {
+                                element_to_type.insert(obj_id, type_id);
                             }
                         }
                     }
@@ -631,8 +911,8 @@ pub fn parse_and_process_ifc(
     let entities_with_geometry: HashSet<u64> =
         geometry_data.iter().map(|g| g.entity_id).collect();
 
-    // Send geometry to Bevy
-    bridge::save_geometry(geometry_data);
+    // Send geometry to Bevy (clone for cache)
+    bridge::save_geometry(geometry_data.clone());
     bridge::log(&format!(
         "[Leptos] Transferred {} meshes to Bevy",
         geometry_count
@@ -753,19 +1033,28 @@ pub fn parse_and_process_ifc(
         }
     }
 
-    // Build entity infos
+    // Build entity infos with property extraction
     let entity_infos: Vec<EntityInfo> = entity_data
         .iter()
-        .map(|e| EntityInfo {
-            id: e.id,
-            entity_type: e.entity_type.clone(),
-            name: e.name.clone(),
-            description: e.description.clone(),
-            global_id: e.global_id.clone(),
-            storey: e.storey.clone(),
-            storey_elevation: e.storey_elevation,
-            property_sets: Vec::new(),
-            quantities: Vec::new(),
+        .map(|e| {
+            let (property_sets, quantities) = extract_properties_and_quantities(
+                e.id as u32,
+                &element_properties,
+                &element_to_type,
+                &mut decoder,
+                unit_scale as f64,
+            );
+            EntityInfo {
+                id: e.id,
+                entity_type: e.entity_type.clone(),
+                name: e.name.clone(),
+                description: e.description.clone(),
+                global_id: e.global_id.clone(),
+                storey: e.storey.clone(),
+                storey_elevation: e.storey_elevation,
+                property_sets,
+                quantities,
+            }
         })
         .collect();
 
@@ -792,7 +1081,22 @@ pub fn parse_and_process_ifc(
     });
 
     state.scene.set_entities(entity_infos);
-    state.scene.set_storeys(storey_infos);
+    state.scene.set_storeys(storey_infos.clone());
+
+    // Save to cache for faster reload next time
+    let spatial_tree_json = state.scene.spatial_tree.get_untracked()
+        .map(|tree| serde_json::to_string(&tree).ok())
+        .flatten();
+    let storeys_json = serde_json::to_string(&storey_infos).ok();
+
+    let file_name = state.scene.file_name.get_untracked().unwrap_or_default();
+    let cached_model = bridge::CachedModel {
+        geometry: geometry_data,
+        entities: entity_data,
+        spatial_tree_json,
+        storeys_json,
+    };
+    bridge::save_model_to_cache(&file_hash, &file_name, &cached_model);
 
     let total_time = now_ms() - load_start;
     bridge::log_info(&format!(

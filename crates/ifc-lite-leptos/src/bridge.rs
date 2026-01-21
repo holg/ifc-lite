@@ -552,3 +552,196 @@ pub fn save_palette(palette: ColorPalette) {
         update_timestamp();
     }
 }
+
+// ============================================================================
+// Model Caching - localStorage-based cache for parsed IFC data
+// ============================================================================
+
+const CACHE_PREFIX: &str = "ifc_cache_";
+const CACHE_INDEX_KEY: &str = "ifc_cache_index";
+const MAX_CACHE_ENTRIES: usize = 5; // Keep last 5 models cached
+
+/// Cache entry metadata
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CacheEntry {
+    pub file_hash: String,
+    pub file_name: String,
+    pub entity_count: usize,
+    pub geometry_count: usize,
+    pub timestamp: f64,
+}
+
+/// Cache index (list of cached models)
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct CacheIndex {
+    pub entries: Vec<CacheEntry>,
+}
+
+/// Cached model data
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CachedModel {
+    pub geometry: Vec<GeometryData>,
+    pub entities: Vec<EntityData>,
+    pub spatial_tree_json: Option<String>,
+    pub storeys_json: Option<String>,
+}
+
+/// Compute a simple hash of file content for cache key
+pub fn compute_file_hash(content: &str) -> String {
+    // Simple hash: use length + first/last chars + sample chars
+    let len = content.len();
+    let first = content.chars().take(100).collect::<String>();
+    let last = content.chars().rev().take(100).collect::<String>();
+
+    // Sample some chars from middle
+    let mid_start = len / 2;
+    let middle: String = content.chars().skip(mid_start).take(100).collect();
+
+    // Create a hash string
+    format!("{:x}_{:x}_{:x}",
+        first.bytes().fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64)),
+        middle.bytes().fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64)),
+        last.bytes().fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64))
+    )
+}
+
+/// Get cache index
+fn get_cache_index() -> Option<CacheIndex> {
+    let storage = get_storage()?;
+    let json = storage.get_item(CACHE_INDEX_KEY).ok()??;
+    serde_json::from_str(&json).ok()
+}
+
+/// Save cache index
+fn save_cache_index(index: &CacheIndex) {
+    if let Some(storage) = get_storage() {
+        if let Ok(json) = serde_json::to_string(index) {
+            let _ = storage.set_item(CACHE_INDEX_KEY, &json);
+        }
+    }
+}
+
+/// Check if a model is cached
+pub fn is_model_cached(file_hash: &str) -> bool {
+    get_cache_index()
+        .map(|idx| idx.entries.iter().any(|e| e.file_hash == file_hash))
+        .unwrap_or(false)
+}
+
+/// Load cached model
+pub fn load_cached_model(file_hash: &str) -> Option<CachedModel> {
+    let storage = get_storage()?;
+    let key = format!("{}{}", CACHE_PREFIX, file_hash);
+    let json = storage.get_item(&key).ok()??;
+
+    // Update access timestamp in index
+    if let Some(mut index) = get_cache_index() {
+        if let Some(entry) = index.entries.iter_mut().find(|e| e.file_hash == file_hash) {
+            entry.timestamp = js_sys::Date::now();
+            save_cache_index(&index);
+        }
+    }
+
+    log_info(&format!("[Cache] Loading cached model: {}", file_hash));
+    serde_json::from_str(&json).ok()
+}
+
+/// Save model to cache
+pub fn save_model_to_cache(
+    file_hash: &str,
+    file_name: &str,
+    model: &CachedModel,
+) {
+    let storage = match get_storage() {
+        Some(s) => s,
+        None => return,
+    };
+
+    // Serialize model
+    let json = match serde_json::to_string(model) {
+        Ok(j) => j,
+        Err(e) => {
+            log_warn(&format!("[Cache] Failed to serialize model: {}", e));
+            return;
+        }
+    };
+
+    // Check size - localStorage has ~5MB limit per key, be conservative
+    let size_mb = json.len() as f64 / (1024.0 * 1024.0);
+    if size_mb > 4.0 {
+        log_warn(&format!("[Cache] Model too large to cache: {:.2}MB", size_mb));
+        return;
+    }
+
+    // Save model data
+    let key = format!("{}{}", CACHE_PREFIX, file_hash);
+    if storage.set_item(&key, &json).is_err() {
+        log_warn("[Cache] Failed to save model - storage may be full");
+        // Try to clear old cache entries and retry
+        clear_oldest_cache_entry();
+        if storage.set_item(&key, &json).is_err() {
+            return;
+        }
+    }
+
+    // Update cache index
+    let mut index = get_cache_index().unwrap_or_default();
+
+    // Remove existing entry for this hash if present
+    index.entries.retain(|e| e.file_hash != file_hash);
+
+    // Add new entry
+    index.entries.push(CacheEntry {
+        file_hash: file_hash.to_string(),
+        file_name: file_name.to_string(),
+        entity_count: model.entities.len(),
+        geometry_count: model.geometry.len(),
+        timestamp: js_sys::Date::now(),
+    });
+
+    // Enforce max cache size
+    while index.entries.len() > MAX_CACHE_ENTRIES {
+        // Remove oldest entry
+        if let Some(oldest) = index.entries.iter().min_by(|a, b| {
+            a.timestamp.partial_cmp(&b.timestamp).unwrap_or(std::cmp::Ordering::Equal)
+        }).cloned() {
+            let old_key = format!("{}{}", CACHE_PREFIX, oldest.file_hash);
+            let _ = storage.remove_item(&old_key);
+            index.entries.retain(|e| e.file_hash != oldest.file_hash);
+        }
+    }
+
+    save_cache_index(&index);
+    log_info(&format!("[Cache] Model cached: {} ({:.2}MB)", file_name, size_mb));
+}
+
+/// Clear oldest cache entry to make room
+fn clear_oldest_cache_entry() {
+    if let Some(storage) = get_storage() {
+        if let Some(mut index) = get_cache_index() {
+            if let Some(oldest) = index.entries.iter().min_by(|a, b| {
+                a.timestamp.partial_cmp(&b.timestamp).unwrap_or(std::cmp::Ordering::Equal)
+            }).cloned() {
+                let key = format!("{}{}", CACHE_PREFIX, oldest.file_hash);
+                let _ = storage.remove_item(&key);
+                index.entries.retain(|e| e.file_hash != oldest.file_hash);
+                save_cache_index(&index);
+                log_info(&format!("[Cache] Cleared old entry: {}", oldest.file_name));
+            }
+        }
+    }
+}
+
+/// Clear all cached models
+pub fn clear_model_cache() {
+    if let Some(storage) = get_storage() {
+        if let Some(index) = get_cache_index() {
+            for entry in &index.entries {
+                let key = format!("{}{}", CACHE_PREFIX, entry.file_hash);
+                let _ = storage.remove_item(&key);
+            }
+        }
+        let _ = storage.remove_item(CACHE_INDEX_KEY);
+        log_info("[Cache] All cached models cleared");
+    }
+}
