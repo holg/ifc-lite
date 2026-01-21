@@ -35,6 +35,7 @@ npm install @ifc-lite/parser @ifc-lite/geometry @ifc-lite/renderer
 ```typescript
 // main.ts
 import { IfcParser } from '@ifc-lite/parser';
+import { GeometryProcessor } from '@ifc-lite/geometry';
 import { Renderer } from '@ifc-lite/renderer';
 
 async function main() {
@@ -45,6 +46,10 @@ async function main() {
   const renderer = new Renderer(canvas);
   await renderer.init();
 
+  // Initialize the geometry processor (loads WASM)
+  const geometry = new GeometryProcessor();
+  await geometry.init();
+
   // Load an IFC file
   const response = await fetch('model.ifc');
   const buffer = await response.arrayBuffer();
@@ -53,20 +58,125 @@ async function main() {
   const parser = new IfcParser();
   const store = await parser.parseColumnar(buffer, {
     onProgress: ({ phase, percent }) => {
-      console.log(`${phase}: ${percent}%`);
+      console.log(`Parsing: ${phase} ${percent}%`);
     }
   });
 
   console.log(`Parsed ${store.entityCount} entities`);
-  console.log(`Schema: ${store.schemaVersion}`);
 
-  // Get walls
+  // Process geometry from the IFC buffer
+  const geometryResult = await geometry.process(new Uint8Array(buffer));
+
+  console.log(`Extracted ${geometryResult.meshes.length} meshes`);
+
+  // Load geometry into renderer (creates GPU buffers and batches)
+  renderer.loadGeometry(geometryResult);
+
+  // Fit camera to model bounds
+  renderer.fitToView();
+
+  // Example: Query entities from the parsed store
+  // The store variable from parser.parseColumnar() is available here in the same scope
   const wallIds = store.entityIndex.byType.get('IFCWALL') ?? [];
   console.log(`Found ${wallIds.length} walls`);
+
+  // Start render loop
+  function animate() {
+    renderer.render();
+    requestAnimationFrame(animate);
+  }
+  animate();
+
+  // Add camera controls (see below)
+  setupCameraControls(canvas, renderer);
 }
 
 main();
 ```
+
+### 3. Add Camera Controls
+
+Add orbit, pan, and zoom controls to make the viewer interactive:
+
+```typescript
+function setupCameraControls(canvas: HTMLCanvasElement, renderer: Renderer) {
+  const camera = renderer.getCamera();
+  
+  let isDragging = false;
+  let isPanning = false;
+  let lastX = 0;
+  let lastY = 0;
+
+  // Mouse down - start drag
+  canvas.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    isPanning = e.button === 1 || e.button === 2 || e.shiftKey; // Middle/right click or shift = pan
+    lastX = e.clientX;
+    lastY = e.clientY;
+    canvas.style.cursor = isPanning ? 'move' : 'grabbing';
+  });
+
+  // Mouse move - orbit or pan
+  canvas.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    const deltaX = e.clientX - lastX;
+    const deltaY = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+
+    if (isPanning) {
+      camera.pan(deltaX, deltaY);
+    } else {
+      camera.orbit(deltaX, deltaY);
+    }
+
+    renderer.render();
+  });
+
+  // Mouse up - stop drag
+  canvas.addEventListener('mouseup', () => {
+    isDragging = false;
+    isPanning = false;
+    canvas.style.cursor = 'grab';
+  });
+
+  // Mouse leave - stop drag
+  canvas.addEventListener('mouseleave', () => {
+    isDragging = false;
+    isPanning = false;
+  });
+
+  // Scroll wheel - zoom
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // Zoom towards mouse position
+    camera.zoom(e.deltaY, false, mouseX, mouseY, canvas.width, canvas.height);
+    renderer.render();
+  });
+
+  // Prevent context menu on right-click
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // Set initial cursor
+  canvas.style.cursor = 'grab';
+}
+```
+
+**Camera Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `camera.orbit(dx, dy)` | Rotate around target (left-drag) |
+| `camera.pan(dx, dy)` | Pan the view (shift+drag or middle-click) |
+| `camera.zoom(delta, false, x, y, w, h)` | Zoom towards mouse position (scroll wheel) |
+| `camera.fitToBounds(min, max)` | Fit camera to bounding box |
+| `camera.setPresetView('top')` | Set preset view: 'top', 'front', 'left', etc. |
+| `camera.zoomToFit(min, max, 500)` | Animated zoom to fit (with duration in ms) |
 
 ## Option 2: Server + Client
 
@@ -133,8 +243,8 @@ for await (const event of client.parseStream(file)) {
       break;
 
     case 'batch':
-      // Add meshes to renderer as they arrive
-      await renderer.addMeshes(event.meshes);
+      // Add meshes to renderer as they arrive (isStreaming=true for throttled batching)
+      renderer.addMeshes(event.meshes, true);
       console.log(`Batch ${event.batch_number}: ${event.mesh_count} meshes`);
       break;
 
@@ -255,16 +365,20 @@ if (format === 'ifcx') {
 
 ```typescript
 import { Renderer } from '@ifc-lite/renderer';
+import { GeometryProcessor } from '@ifc-lite/geometry';
 
 const canvas = document.getElementById('viewer') as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
 await renderer.init();
 
-// Add meshes from server response
+// Option 1: Add meshes from server response (streaming)
 renderer.addMeshes(result.meshes);
 
-// Or add meshes from geometry processor
-// renderer.addMesh(mesh);
+// Option 2: Load geometry from GeometryProcessor result
+const geometry = new GeometryProcessor();
+await geometry.init();
+const geometryResult = await geometry.process(new Uint8Array(buffer));
+renderer.loadGeometry(geometryResult);
 
 // Fit camera to model
 renderer.fitToView();
@@ -280,6 +394,13 @@ animate();
 ### Selection and Picking
 
 ```typescript
+import { extractPropertiesOnDemand } from '@ifc-lite/parser';
+
+// Track selection state
+let selectedIds = new Set<number>();
+let hiddenIds = new Set<number>();
+let isolatedIds: Set<number> | null = null;
+
 // GPU picking
 canvas.addEventListener('click', async (e) => {
   const rect = canvas.getBoundingClientRect();
@@ -289,28 +410,43 @@ canvas.addEventListener('click', async (e) => {
   const expressId = await renderer.pick(x, y);
   if (expressId !== null) {
     console.log(`Selected entity #${expressId}`);
+    selectedIds = new Set([expressId]);
 
-    // Highlight selection
-    renderer.setSelection(new Set([expressId]));
-
-    // Get properties
+    // Get properties using on-demand extraction
     const props = extractPropertiesOnDemand(store, expressId);
     displayProperties(props);
+  } else {
+    selectedIds.clear();
   }
+
+  // Re-render with updated selection
+  renderer.render({ selectedIds, hiddenIds, isolatedIds });
 });
 ```
 
 ### Visibility Control
 
+Visibility is controlled through `render()` options:
+
 ```typescript
 // Hide specific entities
-renderer.setHiddenIds(new Set([123, 456, 789]));
+hiddenIds = new Set([123, 456, 789]);
+renderer.render({ hiddenIds });
 
 // Isolate (show only these)
-renderer.setIsolatedIds(new Set([123]));
+isolatedIds = new Set([123]);
+renderer.render({ isolatedIds });
 
 // Clear isolation (show all)
-renderer.setIsolatedIds(null);
+isolatedIds = null;
+renderer.render({ isolatedIds });
+
+// Combined: hide some, isolate others, with selection
+renderer.render({
+  hiddenIds: new Set([100, 101]),
+  isolatedIds: new Set([200, 201, 202]),
+  selectedIds: new Set([200])
+});
 ```
 
 ## Data Flow Diagram
