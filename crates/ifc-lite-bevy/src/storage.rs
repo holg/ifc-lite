@@ -313,6 +313,18 @@ pub fn save_selection(selection: &SelectionStorage) {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_selection(_selection: &SelectionStorage) {}
 
+/// Get selection source from localStorage
+#[cfg(target_arch = "wasm32")]
+pub fn get_selection_source() -> Option<String> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    storage.get_item("ifc_lite_selection_source").ok()?
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn get_selection_source() -> Option<String> {
+    None
+}
+
 /// Load visibility from localStorage
 #[cfg(target_arch = "wasm32")]
 pub fn load_visibility() -> Option<VisibilityStorage> {

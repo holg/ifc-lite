@@ -115,7 +115,7 @@ impl Plugin for IfcViewerPlugin {
                 SectionPlanePlugin,
                 LoaderPlugin,
             ))
-            .add_systems(Update, poll_scene_changes);
+            .add_systems(Update, (poll_scene_changes, poll_selection_from_storage));
 
         // Add Bevy UI when feature is enabled
         #[cfg(feature = "bevy-ui")]
@@ -305,6 +305,35 @@ pub fn poll_scene_changes(
                 }
 
                 last_timestamp.0 = new_timestamp;
+            }
+        }
+    }
+}
+
+/// System to poll selection changes from localStorage (UI -> Bevy sync)
+/// This allows the UI (Leptos/Yew) to update Bevy's selection via localStorage
+#[allow(unused_variables)]
+pub fn poll_selection_from_storage(mut selection: ResMut<picking::SelectionState>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Check if there's a pending selection from UI
+        if let Some(stored_selection) = storage::load_selection() {
+            // Only update if source is "leptos" or "yew" (UI-initiated)
+            // Skip if source is "bevy" to prevent loops
+            if let Some(source) = storage::get_selection_source() {
+                if source == "bevy" {
+                    return;
+                }
+            }
+
+            // Convert to HashSet for comparison
+            let new_selection: FxHashSet<u64> =
+                stored_selection.selected_ids.into_iter().collect();
+
+            // Only update if actually different
+            if selection.selected != new_selection {
+                selection.selected = new_selection;
+                // Mark as changed so mesh selection system updates colors
             }
         }
     }
