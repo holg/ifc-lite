@@ -30,6 +30,7 @@
 //! ```
 
 mod decoder;
+pub mod ifcx;
 mod model;
 mod properties;
 mod resolver;
@@ -39,6 +40,7 @@ mod tokenizer;
 mod units;
 
 pub use decoder::EntityDecoder;
+pub use ifcx::{is_ifcx_format, IfcxGeometry, IfcxModel};
 pub use model::ParsedModel;
 pub use scanner::EntityScanner;
 pub use tokenizer::{parse_entity, Token};
@@ -120,4 +122,54 @@ pub fn parse_with_progress(
     on_progress: impl Fn(&str, f32) + Send + 'static,
 ) -> Result<Arc<dyn IfcModel>> {
     StepParser::new().parse_with_progress(content, Box::new(on_progress))
+}
+
+/// Auto-detect format and parse (IFC4 STEP or IFC5 IFCX)
+///
+/// This is the recommended entry point for parsing IFC files when
+/// the format is not known in advance.
+pub fn parse_auto(content: &str) -> Result<Arc<dyn IfcModel>> {
+    if is_ifcx_format(content) {
+        IfcxModel::parse(content).map(|m| Arc::new(m) as Arc<dyn IfcModel>)
+    } else {
+        parse(content)
+    }
+}
+
+/// Unified parser that auto-detects format
+#[derive(Default)]
+pub struct UnifiedParser {
+    /// Settings for STEP parsing
+    pub step_settings: StepParser,
+}
+
+impl UnifiedParser {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl IfcParser for UnifiedParser {
+    fn parse(&self, content: &str) -> Result<Arc<dyn IfcModel>> {
+        if is_ifcx_format(content) {
+            IfcxModel::parse(content).map(|m| Arc::new(m) as Arc<dyn IfcModel>)
+        } else {
+            self.step_settings.parse(content)
+        }
+    }
+
+    fn parse_with_progress(
+        &self,
+        content: &str,
+        on_progress: ProgressCallback,
+    ) -> Result<Arc<dyn IfcModel>> {
+        if is_ifcx_format(content) {
+            on_progress("Parsing IFCX JSON", 0.0);
+            let result = IfcxModel::parse(content).map(|m| Arc::new(m) as Arc<dyn IfcModel>);
+            on_progress("Done", 1.0);
+            result
+        } else {
+            self.step_settings.parse_with_progress(content, on_progress)
+        }
+    }
 }
